@@ -82,7 +82,7 @@ function getMemeTokenStatePda(memeId: Buffer, programId: PublicKey): [PublicKey,
 }
 
 // === Helper: Derive vault PDA for a specific mint ===
-function getVaultPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
+export function getVaultPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(VAULT_SEED), mint.toBuffer()],
     programId
