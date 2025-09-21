@@ -1,154 +1,177 @@
 import { Liquidity, MAINNET_PROGRAM_ID, Token, TokenAmount } from "@raydium-io/raydium-sdk";
 import {
-    Connection,
-    Keypair,
-    PublicKey,
-    LAMPORTS_PER_SOL,
-    sendAndConfirmTransaction,
-    SystemProgram,
-    Transaction
-  } from "@solana/web3.js";
+  Connection,
+  Keypair,
+  PublicKey,
+  LAMPORTS_PER_SOL,
+  sendAndConfirmTransaction,
+  SystemProgram,
+  Transaction
+} from "@solana/web3.js";
 
-  import * as anchor from "@project-serum/anchor";
-  import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, getAssociatedTokenAddressSync } from "@solana/spl-token";
-  
+import * as anchor from "@project-serum/anchor";
+import { 
+  createMint,
+  ASSOCIATED_TOKEN_PROGRAM_ID, 
+  TOKEN_2022_PROGRAM_ID, 
+  createAssociatedTokenAccountInstruction, 
+  getAssociatedTokenAddressSync 
+} from "@solana/spl-token";
 
-  // Helper function to get the program
-  export const getProgram = () => {
-    const idl = require("./idl.json");
-    const walletKeypair = require("./admin_xPro_Web3_wallet-keypair.json");
-  
-    const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-    const adminPublicKey = adminKeypair.publicKey;
-  
-    const connection = new Connection("https://api.devnet.solana.com", "confirmed");
-  
-    const programId = new PublicKey(
-      "Acz1HE7FeaNhTrtXBYxmhZtMQ974UFqqJEda3PmWQNLV"
-    );
-  
-    const provider = new anchor.AnchorProvider(
-      connection,
-      new anchor.Wallet(adminKeypair),
-      anchor.AnchorProvider.defaultOptions()
-    );
-    anchor.setProvider(provider);
-  
-    return {
-      program: new anchor.Program(idl, programId, provider),
-      adminPublicKey,
-      adminKeypair,
-      connection,    
-    };
+// Helper function to get the program
+export const getProgram = () => {
+  const idl = require("./idl.json");
+  const walletKeypair = require("./admin_xPro_Web3_wallet-keypair.json");
+
+  const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
+  const adminPublicKey = adminKeypair.publicKey;
+
+  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
+
+  const programId = new PublicKey(
+    "2hjgw8cWi4Dbb9BLygZhopEzVAFPQndiD6Z9UjJsdUJE"
+  );
+
+  const provider = new anchor.AnchorProvider(
+    connection,
+    new anchor.Wallet(adminKeypair),
+    anchor.AnchorProvider.defaultOptions()
+  );
+  anchor.setProvider(provider);
+
+  return {
+    program: new anchor.Program(idl, programId, provider),
+    adminPublicKey,
+    adminKeypair,
+    connection,    
   };
+};
 
-  export interface MintInitParams {
-    name: string;
-    symbol: string;
-    uri: string;
-  }
+export const MEME_TOKEN_STATE_SEED = "meme_token_state";
+export const PROTOCOL_STATE_SEED = "protocol_state_v2"; // Updated to match new Rust seed
+export const FEE_VAULT_SEED = "fee_vault";
+export const VAULT_SEED = "vault";
 
-  const METADATA_PROGRAM_ID = new PublicKey("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s");
-  export const MEME_TOKEN_STATE_SEED = "meme_token_state";
+// === Helper: Generate random meme_id ===
+function generateMemeId(): Buffer {
+  return anchor.utils.bytes.utf8.encode(crypto.randomUUID()).slice(0, 32) as Buffer;
+}
+
+// === Helper: Derive protocol state PDA ===
+function getProtocolStatePda(programId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(PROTOCOL_STATE_SEED)],
+    programId
+  );
+}
+
+// === Helper: Derive fee vault PDA ===
+function getFeeVaultPda(programId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(FEE_VAULT_SEED)],
+    programId
+  );
+}
+
+// === Helper: Derive meme token state PDA ===
+function getMemeTokenStatePda(memeId: Buffer, programId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(MEME_TOKEN_STATE_SEED), memeId],
+    programId
+  );
+}
+
+// === Helper: Derive vault PDA for a specific mint ===
+function getVaultPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(VAULT_SEED), mint.toBuffer()],
+    programId
+  );
+}
+
+// Creates an associated token account for a given mint and owner
+export async function createAssociatedTokenAccount(
+  mint: PublicKey, 
+  owner: PublicKey
+): Promise<PublicKey> {
+  const { adminKeypair, connection } = getProgram();
   
-  const WSOL_MINT = new PublicKey("So11111111111111111111111111111111111111112");
+  const associatedTokenAddress = getAssociatedTokenAddressSync(
+    mint,
+    owner,
+    false,
+    TOKEN_2022_PROGRAM_ID
+  );
 
-  // === Helper: Generate random meme_id ===
-  function generateMemeId(): Buffer {
-    return anchor.utils.bytes.utf8.encode(crypto.randomUUID()).slice(0, 32) as Buffer;
+  const ix = createAssociatedTokenAccountInstruction(
+    adminKeypair.publicKey,      // payer
+    associatedTokenAddress,      // associated token account (to create)
+    owner,                       // owner
+    mint,                        // mint
+    TOKEN_2022_PROGRAM_ID,       // token program id
+    ASSOCIATED_TOKEN_PROGRAM_ID  // associated program id
+  );
+
+  const tx = new Transaction().add(ix);
+  await sendAndConfirmTransaction(connection, tx, [adminKeypair]);
+  return associatedTokenAddress;
+}
+
+// === Check Native SOL Balance ===
+export async function getNativeSolBalance(publicKey: PublicKey): Promise<number> {
+  const { connection } = getProgram();
+  
+  try {
+    const balance = await connection.getBalance(publicKey);
+    return balance; // Returns balance in lamports
+  } catch (error) {
+    console.error("Error fetching SOL balance:", error);
+    return 0;
   }
+}
 
-  // === Helper: Derive protocol state PDA ===
-  function getProtocolStatePda(programId: PublicKey): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("protocol_state")],
-      programId
-    );
-  }
+// === Initialize Protocol State ===
+export async function initializeProtocolState(feeLamports: number) {
+  const { program, adminKeypair } = getProgram();
 
-  // === Helper: Derive meme token state PDA ===
-  function getMemeTokenStatePda(memeId: Buffer, programId: PublicKey): [PublicKey, number] {
-    return PublicKey.findProgramAddressSync(
-      [Buffer.from("meme_token_state"), memeId],
-      programId
-    );
-  }
-
-  // Creates an associated token account for a given mint and owner
-  export async function createAssociatedTokenAccount(): Promise<PublicKey> {
-    const {adminKeypair, adminPublicKey, connection} = getProgram();
-    const associatedTokenAddress = getAssociatedTokenAddressSync(
-      WSOL_MINT,
-      adminPublicKey,
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    const transaction = new Transaction().add(
-      {
-        keys: [
-          { pubkey: adminKeypair.publicKey, isSigner: true, isWritable: true },
-          { pubkey: associatedTokenAddress, isSigner: false, isWritable: true },
-          { pubkey: adminPublicKey, isSigner: false, isWritable: false },
-          { pubkey: WSOL_MINT, isSigner: false, isWritable: false },
-          { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-          { pubkey: TOKEN_2022_PROGRAM_ID, isSigner: false, isWritable: false },
-          { pubkey: ASSOCIATED_TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-        ],
-        programId: ASSOCIATED_TOKEN_PROGRAM_ID,
-        data: Buffer.alloc(0),
-      }
-    );
-
-    await sendAndConfirmTransaction(connection, transaction, [adminKeypair]);
-    return associatedTokenAddress;
-  }
-
-  async function getFeeVault(): Promise<PublicKey> {
-    const {adminPublicKey} = getProgram();
-    const feeVaultTokenAccount = getAssociatedTokenAddressSync(
-      WSOL_MINT,
-      adminPublicKey,
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Note: getAssociatedTokenAddressSync always returns a PublicKey
-    // You'd need to check if the account exists on-chain separately
-    return feeVaultTokenAccount;
-  }
-
-  // === Initialize Protocol State ===
-  export async function initializeProtocolState(feeLamports: number) {
-    const {program, adminKeypair} = getProgram();
-
-    const [protocolState] = getProtocolStatePda(program.programId);
-    
-    await program.methods
+  const [protocolState] = getProtocolStatePda(program.programId);
+  const [feeVault] = getFeeVaultPda(program.programId);
+  
+  try {
+    const tx = await program.methods
       .initializeProtocolState(new anchor.BN(feeLamports))
       .accounts({
         protocolState: protocolState,
         authority: adminKeypair.publicKey,
-        feeVault: await getFeeVault(),
+        feeVault: feeVault,
         systemProgram: SystemProgram.programId,
       })
       .signers([adminKeypair])
       .rpc();
 
+    console.log(`Protocol initialized. Transaction: ${tx}`);
+
     return {
+      transactionId: tx,
       adminPublicKey: adminKeypair.publicKey,
-      vaultTokenAccount: await getFeeVault(),
       protocolState: protocolState,
+      feeVault: feeVault,
+      feeLamports: feeLamports,
     };
+  } catch (error) {
+    console.error("Error initializing protocol:", error);
+    throw error;
   }
+}
 
-  // === Reset Protocol State ===
-  export async function resetProtocolState() {
-    const { program, adminKeypair } = getProgram();
+// === Reset Protocol State ===
+export async function resetProtocolState() {
+  const { program, adminKeypair } = getProgram();
 
-    const [protocolState] = getProtocolStatePda(program.programId);
+  const [protocolState] = getProtocolStatePda(program.programId);
 
-    await program.methods
+  try {
+    const tx = await program.methods
       .resetProtocolState()
       .accounts({
         protocolState,
@@ -157,125 +180,219 @@ import {
       .signers([adminKeypair])
       .rpc();
 
+    console.log(`Protocol reset. Transaction: ${tx}`);
+
     return {
+      transactionId: tx,
       protocolState,
       authority: adminKeypair.publicKey,
     };
+  } catch (error) {
+    console.error("Error resetting protocol:", error);
+    throw error;
   }
+}
 
-  // === Mint Meme Token ===
-  export async function mintMemeTokenService(
-    minter: PublicKey,
-    name: string,
-    symbol: string,
-    uri: string
-  ) {
-    console.log('Minter type:', typeof minter);
-    console.log('Minter value:', minter);
-    console.log('Is PublicKey?', minter instanceof PublicKey);
-    
-    const {program, adminKeypair, connection} = getProgram();
-    
-    // Generate meme_id and derive PDAs
-    const memeId = generateMemeId();
-    const [memeTokenStatePda] = getMemeTokenStatePda(memeId, program.programId);
-    const [protocolState] = getProtocolStatePda(program.programId);
+// === Mint Meme Token 
+export async function mintMemeToken(memeId: Buffer) {
+  const finalMemeId = memeId;
+  const { program, adminKeypair } = getProgram();
+
+  // 1️⃣ Derive all PDAs
+  const [mintPDA] = PublicKey.findProgramAddressSync(
+    [Buffer.from("meme_mint"), finalMemeId],
+    program.programId
+  );
+  const [protocolState] = getProtocolStatePda(program.programId);
+  const [memeTokenState] = getMemeTokenStatePda(finalMemeId, program.programId);
+  const [vault] = getVaultPda(mintPDA, program.programId);
+  const [feeVault] = getFeeVaultPda(program.programId);
+
+  // 2️⃣ Calculate ATA addresses with proper off-curve support
+  const minterTokenAccount = getAssociatedTokenAddressSync(
+    mintPDA,
+    adminKeypair.publicKey, // Regular public key - no special handling needed
+    false,
+    TOKEN_2022_PROGRAM_ID
+  );
   
-    // Create mint keypair
-    const mintKeypair = Keypair.generate();
-  
-    console.log('About to derive minterTokenAccount...');
-    
-    // This is where the error occurs - let's debug
-    const minterTokenAccount = getAssociatedTokenAddressSync(
-      mintKeypair.publicKey,
-      minter, // Make sure this is a PublicKey object
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
+  // ✅ Fixed: Allow off-curve owner for PDA
+  const vaultTokenAccount = getAssociatedTokenAddressSync(
+    mintPDA,
+    vault, // PDA owner
+    true, // allowOwnerOffCurve = true for PDAs
+    TOKEN_2022_PROGRAM_ID
+  );
 
-    // Vault token account for the new mint
-    const vaultTokenAccount = getAssociatedTokenAddressSync(
-      mintKeypair.publicKey,
-      await getFeeVault(), // or protocol authority
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
+  console.log("Mint PDA:", mintPDA.toBase58());
+  console.log("Vault PDA:", vault.toBase58());
+  console.log("Minter ATA:", minterTokenAccount.toBase58());
+  console.log("Vault ATA:", vaultTokenAccount.toBase58());
 
-    // Minter SOL account (wrapped SOL)
-    const minterSolAccount = getAssociatedTokenAddressSync(
-      WSOL_MINT,
-      minter,
-      false,
-      TOKEN_2022_PROGRAM_ID
-    );
-
-    // Protocol fee vault (for collecting SOL fees)
-    const protocolFeeVault = await getFeeVault();
-
+  // 3️⃣ Call Anchor program (handles mint creation + ATA creation + token distribution)
+  try {
     const tx = await program.methods
-      .mintMemeToken(
-        Array.from(memeId), // Convert Buffer to array
-        name,
-        symbol,
-        uri
-      )
+      .mintMemeToken(Array.from(finalMemeId))
       .accounts({
-        minter: minter,
-        memeTokenState: memeTokenStatePda,
-        mint: mintKeypair.publicKey,
+        minter: adminKeypair.publicKey,
+        memeTokenState,
+        mint: mintPDA,
+        vault,
         minterTokenAccount,
         vaultTokenAccount,
-        minterSolAccount,
-        solMint: WSOL_MINT,
-        protocolFeeVault,
+        feeVault,
         protocolState,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       })
-      .signers([mintKeypair]) // The mint needs to sign
       .rpc();
 
+    console.log(`✅ Meme token minted. Transaction: ${tx}`);
+
     return {
-      memeId,
-      memeTokenState: memeTokenStatePda,
-      mint: mintKeypair.publicKey,
+      transactionId: tx,
+      memeId: finalMemeId,
+      mint: mintPDA,
+      minter: adminKeypair.publicKey,
+      memeTokenState,
+      vault,
       minterTokenAccount,
-      transactionSignature: tx,
+      vaultTokenAccount,
     };
+  } catch (error: any) {
+    console.error("❌ Error minting meme token:", error);
+    if (error.logs) console.error("Logs:", error.logs.join("\n"));
+    throw error;
   }
+}
 
-  // === Get Protocol State ===
-  export async function getProtocolState() {
-    const {program} = getProgram();
-    const [protocolStatePda] = getProtocolStatePda(program.programId);
-    
-    try {
-      const protocolState = await program.account.protocolState.fetch(protocolStatePda);
-      return {
-        address: protocolStatePda,
-        data: protocolState,
-      };
-    } catch (error) {
-      console.error("Protocol state not initialized:", error);
-      return null;
-    }
-  }
 
-  // === Get Meme Token State ===
-  export async function getMemeTokenState(memeId: Buffer) {
-    const {program} = getProgram();
-    const [memeTokenStatePda] = getMemeTokenStatePda(memeId, program.programId);
-    
-    try {
-      const memeTokenState = await program.account.memeTokenState.fetch(memeTokenStatePda);
-      return {
-        address: memeTokenStatePda,
-        data: memeTokenState,
-      };
-    } catch (error) {
-      console.error("Meme token state not found:", error);
-      return null;
-    }
+
+
+
+
+interface ProtocolState {
+  authority: PublicKey;
+  feeLamports: anchor.BN;
+  bump: number;
+}
+
+// === Get Protocol State ===
+export async function getProtocolState() {
+  const { program } = getProgram();
+  const [protocolState] = getProtocolStatePda(program.programId);
+
+  try {
+    const account = await program.account.protocolState.fetch(protocolState) as ProtocolState;
+    return {
+      address: protocolState,
+      authority: account.authority,
+      feeLamports: account.feeLamports.toNumber(),
+      bump: account.bump,
+    };
+  } catch (error) {
+    console.error("Error fetching protocol state:", error);
+    return null;
   }
+}
+
+interface MemeTokenState {
+  memeId: Buffer;
+  mint: PublicKey;
+  minter: PublicKey;
+  createdAt: anchor.BN;
+  isInitialized: number;
+  bump: number;
+}
+
+// === Get Meme Token State ===
+export async function getMemeTokenState(memeId: Buffer) {
+  const { program } = getProgram();
+  const [memeTokenState] = getMemeTokenStatePda(memeId, program.programId);
+
+  try {
+    const account = await program.account.memeTokenState.fetch(memeTokenState) as MemeTokenState;
+    return {
+      address: memeTokenState,
+      memeId: account.memeId,
+      mint: account.mint,
+      minter: account.minter,
+      createdAt: account.createdAt,
+      isInitialized: account.isInitialized === 1,
+      bump: account.bump,
+    };
+  } catch (error) {
+    console.error("Error fetching meme token state:", error);
+    return null;
+  }
+}
+
+// === Utility Functions ===
+
+// Check if protocol is initialized
+export async function isProtocolInitialized(): Promise<boolean> {
+  const state = await getProtocolState();
+  return state !== null;
+}
+
+// Get fee vault balance (native SOL)
+export async function getFeeVaultBalance(): Promise<number> {
+  const { connection } = getProgram();
+  const [feeVault] = getFeeVaultPda(getProgram().program.programId);
+  
+  try {
+    const balance = await connection.getBalance(feeVault);
+    return balance; // Returns balance in lamports
+  } catch (error) {
+    console.error("Error fetching fee vault balance:", error);
+    return 0;
+  }
+}
+
+// Get fee vault balance in SOL (converted from lamports)
+export async function getFeeVaultBalanceInSol(): Promise<number> {
+  const balanceLamports = await getFeeVaultBalance();
+  return balanceLamports / LAMPORTS_PER_SOL;
+}
+
+// Convert meme ID to string for display
+export function memeIdToString(memeId: Buffer | number[]): string {
+  const buffer = Buffer.isBuffer(memeId) ? memeId : Buffer.from(memeId);
+  return buffer.toString('utf8').replace(/\0/g, '');
+}
+
+// Convert string to meme ID buffer
+export function stringToMemeId(str: string): Buffer {
+  const buffer = Buffer.alloc(32);
+  Buffer.from(str, 'utf8').copy(buffer);
+  return buffer;
+}
+
+// === SOL Utility Functions ===
+
+// Convert lamports to SOL
+export function lamportsToSol(lamports: number): number {
+  return lamports / LAMPORTS_PER_SOL;
+}
+
+// Convert SOL to lamports
+export function solToLamports(sol: number): number {
+  return Math.floor(sol * LAMPORTS_PER_SOL);
+}
+
+// Check if account has sufficient SOL for fee
+export async function hasEnoughSolForFee(publicKey: PublicKey, feeInLamports: number): Promise<boolean> {
+  const balance = await getNativeSolBalance(publicKey);
+  return balance >= feeInLamports;
+}
+
+// Get minter SOL balance
+export async function getMinterSolBalance(): Promise<{ lamports: number; sol: number }> {
+  const { adminKeypair } = getProgram();
+  const lamports = await getNativeSolBalance(adminKeypair.publicKey);
+  return {
+    lamports,
+    sol: lamportsToSol(lamports)
+  };
+}

@@ -1,22 +1,21 @@
 use anchor_lang::prelude::*;
+use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::{initialize_mint2, mint_to, InitializeMint2, MintTo, Token2022};
-use anchor_spl::token_interface::{transfer_checked, Mint, TokenAccount, TransferChecked};
+use anchor_spl::token_interface::{Mint, TokenAccount};
 
-declare_id!("Acz1HE7FeaNhTrtXBYxmhZtMQ974UFqqJEda3PmWQNLV");
+declare_id!("2hjgw8cWi4Dbb9BLygZhopEzVAFPQndiD6Z9UjJsdUJE");
 
 #[program]
 pub mod meme_launchpad {
     use super::*;
 
-    /// Initialize protocol with fee configuration
     pub fn initialize_protocol_state(
         ctx: Context<InitializeProtocolState>,
         fee_lamports: u64,
     ) -> Result<()> {
         let state = &mut ctx.accounts.protocol_state;
         state.authority = ctx.accounts.authority.key();
-        state.fee_vault = ctx.accounts.fee_vault.key();
         state.fee_lamports = fee_lamports;
         state.bump = ctx.bumps.protocol_state;
 
@@ -29,21 +28,14 @@ pub mod meme_launchpad {
         Ok(())
     }
 
-    /// Reset protocol state (admin only)
     pub fn reset_protocol_state(ctx: Context<ResetProtocolState>) -> Result<()> {
         let state = &mut ctx.accounts.protocol_state;
         state.fee_lamports = 0;
         Ok(())
     }
 
-    /// Mint a new meme token (enforces uniqueness per meme_id)
-    pub fn mint_meme_token(
-        ctx: Context<MintMemeToken>,
-        meme_id: [u8; 32],
-        name: String,
-        symbol: String,
-        _uri: String,
-    ) -> Result<()> {
+    /// Mint a new meme token (PDA-based mint)
+    pub fn mint_meme_token(ctx: Context<MintMemeToken>, meme_id: [u8; 32]) -> Result<()> {
         let protocol_state = &ctx.accounts.protocol_state;
 
         // Ensure not already initialized
@@ -52,16 +44,16 @@ pub mod meme_launchpad {
             ErrorCode::MemeAlreadyMinted
         );
 
-        // Transfer protocol fee from minter to vault
-        transfer_protocol_fee(&ctx.accounts, protocol_state.fee_lamports)?;
+        // === Step 1: Transfer protocol fee (SOL) ===
+        transfer_native_sol_fee(&ctx.accounts, protocol_state.fee_lamports)?;
 
-        // Initialize the new token mint
-        initialize_meme_mint(&ctx.accounts)?;
+        // // === Step 2: Initialize mint with vault PDA as authority ===
+        // initialize_meme_mint(&ctx)?;
 
-        // Distribute token supply (50/50 split)
-        distribute_supply(&ctx.accounts)?;
+        // === Step 3: Distribute supply (2% minter, 98% vault) ===
+        distribute_supply(&ctx)?;
 
-        // Update state
+        // === Step 4: Update MemeTokenState ===
         let meme_token_state = &mut ctx.accounts.meme_token_state;
         meme_token_state.meme_id = meme_id;
         meme_token_state.mint = ctx.accounts.mint.key();
@@ -74,82 +66,97 @@ pub mod meme_launchpad {
             meme_id,
             minter: ctx.accounts.minter.key(),
             mint_addr: ctx.accounts.mint.key(),
-            name,
-            symbol,
         });
 
         Ok(())
     }
 }
 
-/// Transfer protocol fee to vault
-fn transfer_protocol_fee(accounts: &MintMemeToken, fee: u64) -> Result<()> {
-    const SOL_DECIMALS: u8 = 9;
+// --------------------- HELPERS ---------------------
 
-    let cpi_accounts = TransferChecked {
-        from: accounts.minter_sol_account.to_account_info(),
-        mint: accounts.sol_mint.to_account_info(),
-        to: accounts.protocol_fee_vault.to_account_info(),
-        authority: accounts.minter.to_account_info(),
-    };
-    let cpi_ctx = CpiContext::new(accounts.token_program.to_account_info(), cpi_accounts);
-    transfer_checked(cpi_ctx, fee, SOL_DECIMALS)?;
-    Ok(())
+fn transfer_native_sol_fee(accounts: &MintMemeToken, fee_lamports: u64) -> Result<()> {
+    let cpi_ctx = CpiContext::new(
+        accounts.system_program.to_account_info(),
+        system_program::Transfer {
+            from: accounts.minter.to_account_info(),
+            to: accounts.fee_vault.to_account_info(),
+        },
+    );
+    system_program::transfer(cpi_ctx, fee_lamports)
 }
 
-/// Initialize new meme token mint
-fn initialize_meme_mint(accounts: &MintMemeToken) -> Result<()> {
-    const DECIMALS: u8 = 9;
+// fn initialize_meme_mint(ctx: &Context<MintMemeToken>) -> Result<()> {
+//     const DECIMALS: u8 = 9;
 
-    let init_accounts = InitializeMint2 {
-        mint: accounts.mint.to_account_info(),
-    };
-    let init_ctx = CpiContext::new(accounts.token_program.to_account_info(), init_accounts);
-    initialize_mint2(
-        init_ctx,
-        DECIMALS,
-        &accounts.minter.key(),       // mint authority
-        Some(&accounts.minter.key()), // freeze authority
-    )?;
-    Ok(())
-}
+//     let mint_key = ctx.accounts.mint.key();
+//     let vault_seeds_bytes: &[&[u8]] = &[b"vault", mint_key.as_ref(), &[ctx.bumps.vault]];
 
-/// Distribute supply between minter and vault (50/50)
-fn distribute_supply(accounts: &MintMemeToken) -> Result<()> {
-    const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000; // 1B tokens with 9 decimals
-    const MINTER_SHARE: u64 = TOTAL_SUPPLY / 100 * 2; // 2%
-    const VAULT_SHARE: u64 = TOTAL_SUPPLY / 100 * 98; // 98%
+//     // Bind the outer slice as a variable too
+//     let signer_seeds: &[&[&[u8]]] = &[vault_seeds_bytes];
+
+//     let cpi_ctx = CpiContext::new_with_signer(
+//         ctx.accounts.token_program.to_account_info(),
+//         InitializeMint2 {
+//             mint: ctx.accounts.mint.to_account_info(),
+//         },
+//         signer_seeds,
+//     );
+
+//     initialize_mint2(
+//         cpi_ctx,
+//         DECIMALS,
+//         &ctx.accounts.vault.key(),
+//         Some(&ctx.accounts.vault.key()),
+//     )
+// }
+
+fn distribute_supply(ctx: &Context<MintMemeToken>) -> Result<()> {
+    const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
+    let minter_share = TOTAL_SUPPLY * 2 / 100;
+    let vault_share = TOTAL_SUPPLY - minter_share;
+
+    let mint_key = ctx.accounts.mint.key();
+    let vault_seeds_bytes: &[&[u8]] = &[b"vault", mint_key.as_ref(), &[ctx.bumps.vault]];
+    let signer_seeds: &[&[&[u8]]] = &[vault_seeds_bytes];
 
     // Mint 2% to minter
-    let mint_to_minter = MintTo {
-        mint: accounts.mint.to_account_info(),
-        to: accounts.minter_token_account.to_account_info(),
-        authority: accounts.minter.to_account_info(),
-    };
-    let cpi_ctx = CpiContext::new(accounts.token_program.to_account_info(), mint_to_minter);
-    mint_to(cpi_ctx, MINTER_SHARE)?;
+    mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.minter_token_account.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        minter_share,
+    )?;
 
     // Mint 98% to vault
-    let mint_to_vault = MintTo {
-        mint: accounts.mint.to_account_info(),
-        to: accounts.vault_token_account.to_account_info(),
-        authority: accounts.minter.to_account_info(),
-    };
-    let cpi_ctx = CpiContext::new(accounts.token_program.to_account_info(), mint_to_vault);
-    mint_to(cpi_ctx, VAULT_SHARE)?;
-
-    Ok(())
+    mint_to(
+        CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            MintTo {
+                mint: ctx.accounts.mint.to_account_info(),
+                to: ctx.accounts.vault_token_account.to_account_info(),
+                authority: ctx.accounts.vault.to_account_info(),
+            },
+            signer_seeds,
+        ),
+        vault_share,
+    )
 }
 
-// Account Structs
+// --------------------- ACCOUNTS ---------------------
 
 #[derive(Accounts)]
 pub struct InitializeProtocolState<'info> {
     #[account(
         init_if_needed,
         payer = authority,
-        space = 8 + 32 + 32 + 8 + 1, // discriminator + authority + fee_vault + fee_lamports + bump
-        seeds = [b"protocol_state"],
+        space = 128,
+        seeds = [b"protocol_state_v2"],
         bump
     )]
     pub protocol_state: Account<'info, ProtocolState>,
@@ -157,7 +164,11 @@ pub struct InitializeProtocolState<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
 
-    /// CHECK: Token account controlled by protocol
+    #[account(
+        mut,
+        seeds = [b"fee_vault"],
+        bump
+    )]
     pub fee_vault: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
@@ -167,7 +178,7 @@ pub struct InitializeProtocolState<'info> {
 pub struct ResetProtocolState<'info> {
     #[account(
         mut,
-        seeds = [b"protocol_state"],
+        seeds = [b"protocol_state_v2"],
         bump = protocol_state.bump,
         has_one = authority
     )]
@@ -185,17 +196,33 @@ pub struct MintMemeToken<'info> {
     #[account(
         init,
         payer = minter,
-        space = 8 + 32 + 32 + 32 + 8 + 1 + 1, // discriminator + meme_id + mint + minter + created_at + is_initialized + bump
+        space = 8 + 32 + 32 + 32 + 8 + 1 + 1,
         seeds = [b"meme_token_state", meme_id.as_ref()],
         bump
     )]
     pub meme_token_state: Account<'info, MemeTokenState>,
 
-    #[account(init, payer = minter, space = 82)]
+    // ✅ Initialize the mint PDA
+    #[account(
+        init,
+        payer = minter,
+        mint::decimals = 9,
+        mint::authority = vault,
+        mint::freeze_authority = vault,
+        seeds = [b"meme_mint", meme_id.as_ref()],
+        bump,
+        mint::token_program = token_program
+    )]
     pub mint: InterfaceAccount<'info, Mint>,
 
     #[account(
-        init,
+        seeds = [b"vault", mint.key().as_ref()],
+        bump
+    )]
+    pub vault: UncheckedAccount<'info>,
+
+    #[account(
+        init_if_needed,
         payer = minter,
         associated_token::mint = mint,
         associated_token::authority = minter,
@@ -203,19 +230,24 @@ pub struct MintMemeToken<'info> {
     )]
     pub minter_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut)]
+    #[account(
+        init_if_needed,
+        payer = minter,
+        associated_token::mint = mint,
+        associated_token::authority = vault,
+        associated_token::token_program = token_program
+    )]
     pub vault_token_account: InterfaceAccount<'info, TokenAccount>,
 
-    #[account(mut)]
-    pub minter_sol_account: InterfaceAccount<'info, TokenAccount>,
-
-    pub sol_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(mut, address = protocol_state.fee_vault)]
-    pub protocol_fee_vault: InterfaceAccount<'info, TokenAccount>,
+    #[account(
+        mut,
+        seeds = [b"fee_vault"],
+        bump
+    )]
+    pub fee_vault: UncheckedAccount<'info>,
 
     #[account(
-        seeds = [b"protocol_state"],
+        seeds = [b"protocol_state_v2"],
         bump = protocol_state.bump
     )]
     pub protocol_state: Account<'info, ProtocolState>,
@@ -224,13 +256,11 @@ pub struct MintMemeToken<'info> {
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
 }
-
-// State Accounts
+// --------------------- STATE ---------------------
 
 #[account]
 pub struct ProtocolState {
     pub authority: Pubkey,
-    pub fee_vault: Pubkey,
     pub fee_lamports: u64,
     pub bump: u8,
 }
@@ -245,7 +275,7 @@ pub struct MemeTokenState {
     pub bump: u8,
 }
 
-// Events
+// --------------------- EVENTS ---------------------
 
 #[event]
 pub struct ProtocolInitialized {
@@ -259,11 +289,9 @@ pub struct Minted {
     pub meme_id: [u8; 32],
     pub minter: Pubkey,
     pub mint_addr: Pubkey,
-    pub name: String,
-    pub symbol: String,
 }
 
-// Errors
+// --------------------- ERRORS ---------------------
 
 #[error_code]
 pub enum ErrorCode {

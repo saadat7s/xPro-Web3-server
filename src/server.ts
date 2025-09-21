@@ -2,7 +2,22 @@ import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import { PublicKey } from "@solana/web3.js";
-import { initializeProtocolState, resetProtocolState, getProgram, mintMemeTokenService } from "./service";
+import { 
+  initializeProtocolState, 
+  resetProtocolState, 
+  getProgram, 
+  getProtocolState,
+  mintMemeToken,
+  getMemeTokenState,
+  getFeeVaultBalance,
+  getFeeVaultBalanceInSol,
+  getMinterSolBalance,
+  isProtocolInitialized,
+  memeIdToString,
+  stringToMemeId,
+  lamportsToSol,
+  solToLamports
+} from "./service";
 
 dotenv.config();
 
@@ -60,18 +75,24 @@ app.post("/reset-protocol-state", async (req: Request, res: Response) => {
 
 app.get("/protocol-state", async (req: Request, res: Response) => {
   try {
-    const { program } = getProgram();
-    const [protocolState] = PublicKey.findProgramAddressSync(
-      [Buffer.from("protocol_state")],
-      program.programId
-    );
+    const state = await getProtocolState();
 
-    const state = await program.account.protocolState.fetch(protocolState);
+    if (!state) {
+      return res.status(404).json({
+        success: false,
+        message: "Protocol state not found or not initialized",
+      });
+    }
 
     return res.status(200).json({
       success: true,
-      protocolState: protocolState.toBase58(),
-      data: state,
+      protocolState: state.address.toBase58(),
+      data: {
+        authority: state.authority.toBase58(),
+        feeLamports: state.feeLamports,
+        feeInSol: lamportsToSol(state.feeLamports),
+        bump: state.bump,
+      },
     });
   } catch (err: any) {
     console.error("/protocol-state error:", err);
@@ -85,45 +106,40 @@ app.get("/protocol-state", async (req: Request, res: Response) => {
 // POST route for minting meme tokens
 app.post('/mint-meme-token', async (req, res) => {
   try {
-    const { minter, name, symbol, uri } = req.body;
-
-    if (!minter || !name || !symbol || !uri) {
+    const { memeId } = req.body;
+    
+    let memeIdBuffer: Buffer | undefined;
+    if (memeId) {
+      if (typeof memeId === 'string') {
+        memeIdBuffer = stringToMemeId(memeId);
+      } else {
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid memeId format - must be a string',
+        });
+      }
+    } else {
       return res.status(400).json({
         success: false,
-        error: 'Missing required parameters',
+        error: 'memeId is required',
       });
     }
 
-    let minterPublicKey;
-    try {
-      minterPublicKey = new PublicKey(minter);
-    } catch {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid minter public key format',
-      });
-    }
-
-    // Basic length checks
-    if (name.length > 32 || symbol.length > 10 || uri.length > 200) {
-      return res.status(400).json({
-        success: false,
-        error: 'One or more fields exceed max length',
-      });
-    }
-
-    const result = await mintMemeTokenService(minterPublicKey, name, symbol, uri);
+    const result = await mintMemeToken(memeIdBuffer as Buffer);
 
     res.json({
       success: true,
       message: 'Meme token minted successfully',
       data: {
-        memeId: Buffer.from(result.memeId).toString('hex'),
-        memeTokenState: result.memeTokenState.toBase58(),
+        transactionId: result.transactionId,
+        memeId: memeIdToString(result.memeId),
+        memeIdHex: Buffer.from(result.memeId).toString('hex'),
         mint: result.mint.toBase58(),
+        minter: result.minter.toBase58(),
+        memeTokenState: result.memeTokenState.toBase58(),
+        vault: result.vault.toBase58(),
         minterTokenAccount: result.minterTokenAccount.toBase58(),
-        transactionSignature: result.transactionSignature,
-        tokenInfo: { name, symbol, uri }
+        vaultTokenAccount: result.vaultTokenAccount.toBase58(),
       }
     });
 
@@ -145,27 +161,114 @@ app.post('/mint-meme-token', async (req, res) => {
     });
   }
 });
-// app.post("/mint-for-meme", async (req: Request, res: Response) => {
-//   try {
-//     const { memeId, params } = req.body as {
-//       memeId: string;
-//       params: MintInitParams;
-//     };
 
-//     if (!memeId || !params?.name || !params?.symbol || !params?.uri) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Missing fields: memeId, params{name,symbol,uri} are required",
-//       });
-//     }
+// Get meme token state by meme ID
+app.get('/meme-token-state/:memeId', async (req: Request, res: Response) => {
+  try {
+    const { memeId } = req.params;
+    
+    if (!memeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Meme ID is required',
+      });
+    }
 
-//     const result = await mintForMemeService(memeId, params);
-//     return res.status(result.success ? 200 : 500).json(result);
-//   } catch (err: any) {
-//     console.error("/mint-for-meme error:", err);
-//     return res.status(500).json({ success: false, message: err.message || String(err) });
-//   }
-// });
+    const memeIdBuffer = stringToMemeId(memeId);
+    const state = await getMemeTokenState(memeIdBuffer);
+
+    if (!state) {
+      return res.status(404).json({
+        success: false,
+        message: 'Meme token state not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        address: state.address.toBase58(),
+        memeId: memeIdToString(state.memeId),
+        memeIdHex: Buffer.from(state.memeId).toString('hex'),
+        mint: state.mint.toBase58(),
+        minter: state.minter.toBase58(),
+        createdAt: state.createdAt,
+        isInitialized: state.isInitialized,
+        bump: state.bump,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('/meme-token-state error:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch meme token state',
+    });
+  }
+});
+
+// Get fee vault balance
+app.get('/fee-vault-balance', async (req: Request, res: Response) => {
+  try {
+    const balanceLamports = await getFeeVaultBalance();
+    const balanceSol = await getFeeVaultBalanceInSol();
+
+    res.json({
+      success: true,
+      data: {
+        lamports: balanceLamports,
+        sol: balanceSol,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('/fee-vault-balance error:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch fee vault balance',
+    });
+  }
+});
+
+// Get minter SOL balance
+app.get('/minter-balance', async (req: Request, res: Response) => {
+  try {
+    const balance = await getMinterSolBalance();
+
+    res.json({
+      success: true,
+      data: balance
+    });
+
+  } catch (error: any) {
+    console.error('/minter-balance error:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch minter balance',
+    });
+  }
+});
+
+// Check if protocol is initialized
+app.get('/protocol-status', async (req: Request, res: Response) => {
+  try {
+    const isInitialized = await isProtocolInitialized();
+
+    res.json({
+      success: true,
+      data: {
+        isInitialized
+      }
+    });
+
+  } catch (error: any) {
+    console.error('/protocol-status error:', error);
+    res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to check protocol status',
+    });
+  }
+});
 
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
