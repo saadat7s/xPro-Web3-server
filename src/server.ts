@@ -5,7 +5,6 @@ import { PublicKey } from "@solana/web3.js";
 import { 
   initializeProtocolState, 
   resetProtocolState, 
-  getProgram, 
   getProtocolState,
   mintMemeToken,
   getMemeTokenState,
@@ -16,8 +15,9 @@ import {
   memeIdToString,
   stringToMemeId,
   lamportsToSol,
-  solToLamports
+
 } from "./service";
+import { formatTokenAmount, getRecentMintDistribution, getTokenBalance } from "./mintDetails";
 
 dotenv.config();
 
@@ -266,6 +266,99 @@ app.get('/protocol-status', async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       error: error?.message || 'Failed to check protocol status',
+    });
+  }
+});
+
+
+
+// GET route for checking meme token distribution
+app.get('/meme-token-distribution/:memeId', async (req, res) => {
+  try {
+    const { memeId } = req.params;
+    
+    if (!memeId) {
+      return res.status(400).json({
+        success: false,
+        error: 'memeId parameter is required',
+      });
+    }
+
+    const distribution = await getRecentMintDistribution(memeId);
+    
+    if (!distribution) {
+      return res.status(404).json({
+        success: false,
+        error: 'Meme token not found or no balances available',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Token distribution retrieved successfully',
+      data: {
+        memeId,
+        ...distribution
+      }
+    });
+
+  } catch (error: any) {
+    console.error('/meme-token-distribution error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to retrieve token distribution',
+    });
+  }
+});
+
+// GET route for checking specific token account balance
+app.get('/token-balance/:tokenAccountAddress', async (req, res) => {
+  try {
+    const { tokenAccountAddress } = req.params;
+    
+    if (!tokenAccountAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenAccountAddress parameter is required',
+      });
+    }
+
+    let tokenAccount: PublicKey;
+    try {
+      tokenAccount = new PublicKey(tokenAccountAddress);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid token account address format',
+      });
+    }
+
+    const balance = await getTokenBalance(tokenAccount);
+    
+    if (!balance) {
+      return res.status(404).json({
+        success: false,
+        error: 'Token account not found or invalid',
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Token balance retrieved successfully',
+      data: {
+        tokenAccountAddress,
+        mint: balance.mint.toBase58(),
+        balance: balance.balance,
+        formattedBalance: formatTokenAmount(balance.balance, balance.decimals),
+        decimals: balance.decimals,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('/token-balance error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to retrieve token balance',
     });
   }
 });
