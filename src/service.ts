@@ -1,4 +1,3 @@
-import { Liquidity, MAINNET_PROGRAM_ID, Token, TokenAmount } from "@raydium-io/raydium-sdk";
 import {
   Connection,
   Keypair,
@@ -6,14 +5,15 @@ import {
   LAMPORTS_PER_SOL,
   sendAndConfirmTransaction,
   SystemProgram,
-  Transaction
+  Transaction,
+  SYSVAR_RENT_PUBKEY
 } from "@solana/web3.js";
 
-import * as anchor from "@project-serum/anchor";
+import * as anchor from "@coral-xyz/anchor";
 import { 
   createMint,
   ASSOCIATED_TOKEN_PROGRAM_ID, 
-  TOKEN_2022_PROGRAM_ID, 
+  TOKEN_PROGRAM_ID,  // Changed from TOKEN_2022_PROGRAM_ID
   createAssociatedTokenAccountInstruction, 
   getAssociatedTokenAddressSync 
 } from "@solana/spl-token";
@@ -48,7 +48,7 @@ export const getProgram = () => {
 };
 
 export const MEME_TOKEN_STATE_SEED = "meme_token_state";
-export const PROTOCOL_STATE_SEED = "protocol_state_v2"; // Updated to match new Rust seed
+export const PROTOCOL_STATE_SEED = "protocol_state_v2";
 export const FEE_VAULT_SEED = "fee_vault";
 export const VAULT_SEED = "vault";
 
@@ -100,7 +100,7 @@ export async function createAssociatedTokenAccount(
     mint,
     owner,
     false,
-    TOKEN_2022_PROGRAM_ID
+    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
   );
 
   const ix = createAssociatedTokenAccountInstruction(
@@ -108,7 +108,7 @@ export async function createAssociatedTokenAccount(
     associatedTokenAddress,      // associated token account (to create)
     owner,                       // owner
     mint,                        // mint
-    TOKEN_2022_PROGRAM_ID,       // token program id
+    TOKEN_PROGRAM_ID,            // Changed from TOKEN_2022_PROGRAM_ID
     ASSOCIATED_TOKEN_PROGRAM_ID  // associated program id
   );
 
@@ -208,20 +208,20 @@ export async function mintMemeToken(memeId: Buffer) {
   const [vault] = getVaultPda(mintPDA, program.programId);
   const [feeVault] = getFeeVaultPda(program.programId);
 
-  // 2️⃣ Calculate ATA addresses with proper off-curve support
+  // 2️⃣ Calculate ATA addresses with classic SPL Token
   const minterTokenAccount = getAssociatedTokenAddressSync(
     mintPDA,
-    adminKeypair.publicKey, // Regular public key - no special handling needed
+    adminKeypair.publicKey,
     false,
-    TOKEN_2022_PROGRAM_ID
+    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
   );
   
-  // ✅ Fixed: Allow off-curve owner for PDA
+  // Allow off-curve owner for PDA
   const vaultTokenAccount = getAssociatedTokenAddressSync(
     mintPDA,
-    vault, // PDA owner
+    vault,
     true, // allowOwnerOffCurve = true for PDAs
-    TOKEN_2022_PROGRAM_ID
+    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
   );
 
   console.log("Mint PDA:", mintPDA.toBase58());
@@ -229,7 +229,7 @@ export async function mintMemeToken(memeId: Buffer) {
   console.log("Minter ATA:", minterTokenAccount.toBase58());
   console.log("Vault ATA:", vaultTokenAccount.toBase58());
 
-  // 3️⃣ Call Anchor program (handles mint creation + ATA creation + token distribution)
+  // 3️⃣ Call Anchor program
   try {
     const tx = await program.methods
       .mintMemeToken(Array.from(finalMemeId))
@@ -242,9 +242,10 @@ export async function mintMemeToken(memeId: Buffer) {
         vaultTokenAccount,
         feeVault,
         protocolState,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        tokenProgram: TOKEN_PROGRAM_ID,  // Changed from TOKEN_2022_PROGRAM_ID
         systemProgram: SystemProgram.programId,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+        rent: SYSVAR_RENT_PUBKEY,  // Added for classic token initialization
       })
       .rpc();
 
@@ -266,11 +267,6 @@ export async function mintMemeToken(memeId: Buffer) {
     throw error;
   }
 }
-
-
-
-
-
 
 interface ProtocolState {
   authority: PublicKey;
@@ -343,14 +339,14 @@ export async function getFeeVaultBalance(): Promise<number> {
   
   try {
     const balance = await connection.getBalance(feeVault);
-    return balance; // Returns balance in lamports
+    return balance;
   } catch (error) {
     console.error("Error fetching fee vault balance:", error);
     return 0;
   }
 }
 
-// Get fee vault balance in SOL (converted from lamports)
+// Get fee vault balance in SOL
 export async function getFeeVaultBalanceInSol(): Promise<number> {
   const balanceLamports = await getFeeVaultBalance();
   return balanceLamports / LAMPORTS_PER_SOL;

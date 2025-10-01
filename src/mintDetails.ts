@@ -1,7 +1,7 @@
 import { getAccount, TokenAccountNotFoundError, TokenInvalidAccountOwnerError } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import { getProgram } from "./service";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
+import { TOKEN_PROGRAM_ID } from "@solana/spl-token";  // Changed from TOKEN_2022_PROGRAM_ID
 import { getVaultPda } from "./service";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { memeIdToString } from "./service";
@@ -21,7 +21,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
       connection,
       tokenAccountAddress,
       undefined,
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
     
     return {
@@ -79,14 +79,14 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
       mintPDA,
       adminKeypair.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
     
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       mintPDA,
       vault,
       true, // allowOwnerOffCurve for PDA
-      TOKEN_2022_PROGRAM_ID
+      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
 
     // Get balances
