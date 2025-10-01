@@ -15,9 +15,13 @@ import {
   memeIdToString,
   stringToMemeId,
   lamportsToSol,
-
 } from "./service";
 import { formatTokenAmount, getRecentMintDistribution, getTokenBalance } from "./mintDetails";
+import { 
+  createOrcaPoolForMeme, 
+  addLiquidityToOrcaPool, 
+  getPoolInfo 
+} from "./orcaService";
 
 dotenv.config();
 
@@ -26,6 +30,8 @@ const PORT = process.env.PORT || 4000;
 
 app.use(cors());
 app.use(express.json());
+
+// ==================== EXISTING ENDPOINTS ====================
 
 // Initialize protocol state
 app.post("/initialize-protocol-state", async (req: Request, res: Response) => {
@@ -70,8 +76,6 @@ app.post("/reset-protocol-state", async (req: Request, res: Response) => {
     });
   }
 });
-
-
 
 app.get("/protocol-state", async (req: Request, res: Response) => {
   try {
@@ -270,8 +274,6 @@ app.get('/protocol-status', async (req: Request, res: Response) => {
   }
 });
 
-
-
 // GET route for checking meme token distribution
 app.get('/meme-token-distribution/:memeId', async (req, res) => {
   try {
@@ -363,6 +365,237 @@ app.get('/token-balance/:tokenAccountAddress', async (req, res) => {
   }
 });
 
+// ==================== NEW ORCA ENDPOINTS ====================
+
+/**
+ * POST /create-pool
+ * Create an Orca Whirlpool for a meme token
+ * Body: { memeTokenMint: string }
+ */
+app.post('/create-pool', async (req: Request, res: Response) => {
+  try {
+    const { memeTokenMint } = req.body;
+
+    if (!memeTokenMint) {
+      return res.status(400).json({
+        success: false,
+        error: 'memeTokenMint is required',
+      });
+    }
+
+    let mintPubkey: PublicKey;
+    try {
+      mintPubkey = new PublicKey(memeTokenMint);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid memeTokenMint address format',
+      });
+    }
+
+    console.log('[POST /create-pool] Creating pool for mint:', mintPubkey.toBase58());
+    const result = await createOrcaPoolForMeme(mintPubkey);
+
+    return res.json({
+      success: true,
+      message: result.alreadyExisted ? 'Pool already exists' : 'Pool created successfully',
+      data: {
+        poolAddress: result.poolAddress.toBase58(),
+        tokenMintA: result.tokenMintA.toBase58(),
+        tokenMintB: result.tokenMintB.toBase58(),
+        transactionSignature: result.transactionSignature,
+        alreadyExisted: result.alreadyExisted,
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[POST /create-pool] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to create pool',
+    });
+  }
+});
+
+/**
+ * POST /add-liquidity
+ * Add liquidity to an Orca Whirlpool
+ * Body: { 
+ *   whirlpoolAddress: string, 
+ *   inputMint: string (SOL or MEME token), 
+ *   inputAmount: number (in token units)
+ * }
+ */
+app.post('/add-liquidity', async (req: Request, res: Response) => {
+  try {
+    const { whirlpoolAddress, inputMint, inputAmount } = req.body;
+
+    if (!whirlpoolAddress || !inputMint || !inputAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'whirlpoolAddress, inputMint, and inputAmount are required',
+      });
+    }
+
+    let poolPubkey: PublicKey;
+    let mintPubkey: PublicKey;
+    
+    try {
+      poolPubkey = new PublicKey(whirlpoolAddress);
+      mintPubkey = new PublicKey(inputMint);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid address format',
+      });
+    }
+
+    if (typeof inputAmount !== 'number' || inputAmount <= 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'inputAmount must be a positive number',
+      });
+    }
+
+    console.log('[POST /add-liquidity] Adding liquidity to pool:', poolPubkey.toBase58());
+    const result = await addLiquidityToOrcaPool(poolPubkey, mintPubkey, inputAmount);
+
+    return res.json({
+      success: true,
+      message: 'Liquidity added successfully',
+      data: result
+    });
+
+  } catch (error: any) {
+    console.error('[POST /add-liquidity] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to add liquidity',
+    });
+  }
+});
+
+/**
+ * GET /pool-info/:poolAddress
+ * Get information about a Whirlpool
+ */
+app.get('/pool-info/:poolAddress', async (req: Request, res: Response) => {
+  try {
+    const { poolAddress } = req.params;
+
+    if (!poolAddress) {
+      return res.status(400).json({
+        success: false,
+        error: 'poolAddress is required',
+      });
+    }
+
+    let poolPubkey: PublicKey;
+    try {
+      poolPubkey = new PublicKey(poolAddress);
+    } catch (e) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid pool address format',
+      });
+    }
+
+    console.log('[GET /pool-info] Fetching info for pool:', poolPubkey.toBase58());
+    const result = await getPoolInfo(poolPubkey);
+
+    return res.json({
+      success: true,
+      message: 'Pool info retrieved successfully',
+      data: result
+    });
+
+  } catch (error: any) {
+    console.error('[GET /pool-info] Error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch pool info',
+    });
+  }
+});
+
+/**
+ * POST /mint-and-create-pool
+ * Combined endpoint: Mint a meme token and create an Orca pool for it
+ * Body: { memeId: string }
+ */
+app.post('/mint-and-create-pool', async (req: Request, res: Response) => {
+  try {
+    const { memeId } = req.body;
+
+    if (!memeId || typeof memeId !== 'string') {
+      return res.status(400).json({
+        success: false,
+        error: 'memeId (string) is required',
+      });
+    }
+
+    console.log('[POST /mint-and-create-pool] Step 1: Minting token...');
+    const memeIdBuffer = stringToMemeId(memeId);
+    const mintResult = await mintMemeToken(memeIdBuffer);
+
+    console.log('[POST /mint-and-create-pool] Step 2: Creating pool...');
+    const poolResult = await createOrcaPoolForMeme(mintResult.mint);
+
+    return res.json({
+      success: true,
+      message: 'Token minted and pool created successfully',
+      data: {
+        mint: {
+          transactionId: mintResult.transactionId,
+          memeId: memeIdToString(mintResult.memeId),
+          mint: mintResult.mint.toBase58(),
+          vault: mintResult.vault.toBase58(),
+        },
+        pool: {
+          poolAddress: poolResult.poolAddress.toBase58(),
+          tokenMintA: poolResult.tokenMintA.toBase58(),
+          tokenMintB: poolResult.tokenMintB.toBase58(),
+          transactionSignature: poolResult.transactionSignature,
+          alreadyExisted: poolResult.alreadyExisted,
+        }
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[POST /mint-and-create-pool] Error:', error);
+    
+    let errorMessage = error?.message || 'Operation failed';
+    
+    if (errorMessage.includes('MemeAlreadyMinted')) {
+      return res.status(409).json({
+        success: false,
+        error: 'This meme has already been minted',
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      error: errorMessage,
+    });
+  }
+});
+
 app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log('\n📋 Available endpoints:');
+  console.log('  POST   /initialize-protocol-state');
+  console.log('  POST   /reset-protocol-state');
+  console.log('  GET    /protocol-state');
+  console.log('  POST   /mint-meme-token');
+  console.log('  GET    /meme-token-state/:memeId');
+  console.log('  GET    /fee-vault-balance');
+  console.log('  GET    /minter-balance');
+  console.log('  GET    /protocol-status');
+  console.log('  GET    /meme-token-distribution/:memeId');
+  console.log('  GET    /token-balance/:tokenAccountAddress');
+  console.log('\n🌊 Orca Liquidity Pool endpoints:');
+  console.log('  POST   /create-pool');
+  console.log('  POST   /add-liquidity');
+  console.log('  GET    /pool-info/:poolAddress');
+  console.log('  POST   /mint-and-create-pool\n');
 });
