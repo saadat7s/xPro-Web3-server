@@ -17,11 +17,16 @@ import {
   lamportsToSol,
 } from "./service";
 import { formatTokenAmount, getRecentMintDistribution, getTokenBalance } from "./mintDetails";
-import { 
-  createOrcaPoolForMeme, 
-  addLiquidityToOrcaPool, 
-  getPoolInfo 
-} from "./orcaService";
+import {
+  initializeAmmPool,
+  addLiquidity,
+  removeLiquidity,
+  swapSolForTokens,
+  swapTokensForSol,
+  getPoolInfo,
+  calculatePrice,
+  calculateSwapOutput,
+} from "./ammService";
 
 dotenv.config();
 
@@ -365,109 +370,66 @@ app.get('/token-balance/:tokenAccountAddress', async (req, res) => {
   }
 });
 
-// ==================== NEW ORCA ENDPOINTS ====================
+// ==================== AMM ENDPOINTS ====================
 
-/**
- * POST /create-pool
- * Create an Orca Whirlpool for a meme token
- * Body: { memeTokenMint: string }
- */
-app.post('/create-pool', async (req: Request, res: Response) => {
+// Initialize AMM pool
+app.post('/create-amm-pool', async (req: Request, res: Response) => {
   try {
-    const { memeTokenMint } = req.body;
+    const { tokenMint, initialSolAmount, initialTokenAmount } = req.body;
 
-    if (!memeTokenMint) {
+    if (!tokenMint || !initialSolAmount || !initialTokenAmount) {
       return res.status(400).json({
         success: false,
-        error: 'memeTokenMint is required',
+        error: 'tokenMint, initialSolAmount, and initialTokenAmount are required',
       });
     }
 
-    let mintPubkey: PublicKey;
-    try {
-      mintPubkey = new PublicKey(memeTokenMint);
-    } catch (e) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid memeTokenMint address format',
-      });
-    }
-
-    console.log('[POST /create-pool] Creating pool for mint:', mintPubkey.toBase58());
-    const result = await createOrcaPoolForMeme(mintPubkey);
+    const result = await initializeAmmPool(
+      tokenMint,
+      initialSolAmount,
+      initialTokenAmount
+    );
 
     return res.json({
       success: true,
-      message: result.alreadyExisted ? 'Pool already exists' : 'Pool created successfully',
-      data: {
-        poolAddress: result.poolAddress.toBase58(),
-        tokenMintA: result.tokenMintA.toBase58(),
-        tokenMintB: result.tokenMintB.toBase58(),
-        transactionSignature: result.transactionSignature,
-        alreadyExisted: result.alreadyExisted,
-      }
+      message: 'AMM pool created successfully',
+      data: result,
     });
-
   } catch (error: any) {
-    console.error('[POST /create-pool] Error:', error);
+    console.error('/create-amm-pool error:', error);
     return res.status(500).json({
       success: false,
-      error: error.message || 'Failed to create pool',
+      error: error.message || 'Failed to create AMM pool',
     });
   }
 });
 
-/**
- * POST /add-liquidity
- * Add liquidity to an Orca Whirlpool
- * Body: { 
- *   whirlpoolAddress: string, 
- *   inputMint: string (SOL or MEME token), 
- *   inputAmount: number (in token units)
- * }
- */
+// Add liquidity
 app.post('/add-liquidity', async (req: Request, res: Response) => {
   try {
-    const { whirlpoolAddress, inputMint, inputAmount } = req.body;
+    const { tokenMint, solAmount, maxTokenAmount, minLpAmount } = req.body;
 
-    if (!whirlpoolAddress || !inputMint || !inputAmount) {
+    if (!tokenMint || !solAmount || !maxTokenAmount) {
       return res.status(400).json({
         success: false,
-        error: 'whirlpoolAddress, inputMint, and inputAmount are required',
+        error: 'tokenMint, solAmount, and maxTokenAmount are required',
       });
     }
 
-    let poolPubkey: PublicKey;
-    let mintPubkey: PublicKey;
-    
-    try {
-      poolPubkey = new PublicKey(whirlpoolAddress);
-      mintPubkey = new PublicKey(inputMint);
-    } catch (e) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid address format',
-      });
-    }
-
-    if (typeof inputAmount !== 'number' || inputAmount <= 0) {
-      return res.status(400).json({
-        success: false,
-        error: 'inputAmount must be a positive number',
-      });
-    }
-
-    console.log('[POST /add-liquidity] Adding liquidity to pool:', poolPubkey.toBase58());
-    const result = await addLiquidityToOrcaPool(poolPubkey, mintPubkey, inputAmount);
+    const result = await addLiquidity(
+      tokenMint,
+      solAmount,
+      maxTokenAmount,
+      minLpAmount || 0
+    );
 
     return res.json({
       success: true,
       message: 'Liquidity added successfully',
-      data: result
+      data: result,
     });
-
   } catch (error: any) {
-    console.error('[POST /add-liquidity] Error:', error);
+    console.error('/add-liquidity error:', error);
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to add liquidity',
@@ -475,42 +437,140 @@ app.post('/add-liquidity', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * GET /pool-info/:poolAddress
- * Get information about a Whirlpool
- */
-app.get('/pool-info/:poolAddress', async (req: Request, res: Response) => {
+// Remove liquidity
+app.post('/remove-liquidity', async (req: Request, res: Response) => {
   try {
-    const { poolAddress } = req.params;
+    const { tokenMint, lpAmount, minSolAmount, minTokenAmount } = req.body;
 
-    if (!poolAddress) {
+    if (!tokenMint || !lpAmount) {
       return res.status(400).json({
         success: false,
-        error: 'poolAddress is required',
+        error: 'tokenMint and lpAmount are required',
       });
     }
 
-    let poolPubkey: PublicKey;
-    try {
-      poolPubkey = new PublicKey(poolAddress);
-    } catch (e) {
-      return res.status(400).json({
-        success: false,
-        error: 'Invalid pool address format',
-      });
-    }
-
-    console.log('[GET /pool-info] Fetching info for pool:', poolPubkey.toBase58());
-    const result = await getPoolInfo(poolPubkey);
+    const result = await removeLiquidity(
+      tokenMint,
+      lpAmount,
+      minSolAmount || 0,
+      minTokenAmount || 0
+    );
 
     return res.json({
       success: true,
-      message: 'Pool info retrieved successfully',
-      data: result
+      message: 'Liquidity removed successfully',
+      data: result,
     });
-
   } catch (error: any) {
-    console.error('[GET /pool-info] Error:', error);
+    console.error('/remove-liquidity error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to remove liquidity',
+    });
+  }
+});
+
+// Swap SOL for tokens
+app.post('/swap-sol-for-tokens', async (req: Request, res: Response) => {
+  try {
+    const { tokenMint, solAmount, minTokenAmount } = req.body;
+
+    if (!tokenMint || !solAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenMint and solAmount are required',
+      });
+    }
+
+    const result = await swapSolForTokens(
+      tokenMint,
+      solAmount,
+      minTokenAmount || 0
+    );
+
+    return res.json({
+      success: true,
+      message: 'Swap executed successfully',
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('/swap-sol-for-tokens error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Swap failed',
+    });
+  }
+});
+
+// Swap tokens for SOL
+app.post('/swap-tokens-for-sol', async (req: Request, res: Response) => {
+  try {
+    const { tokenMint, tokenAmount, minSolAmount } = req.body;
+
+    if (!tokenMint || !tokenAmount) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenMint and tokenAmount are required',
+      });
+    }
+
+    const result = await swapTokensForSol(
+      tokenMint,
+      tokenAmount,
+      minSolAmount || 0
+    );
+
+    return res.json({
+      success: true,
+      message: 'Swap executed successfully',
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('/swap-tokens-for-sol error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || 'Swap failed',
+    });
+  }
+});
+
+// Get pool info
+app.get('/pool-info/:tokenMint', async (req: Request, res: Response) => {
+  try {
+    const { tokenMint } = req.params;
+
+    if (!tokenMint) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenMint is required',
+      });
+    }
+
+    const poolInfo = await getPoolInfo(tokenMint);
+
+    if (!poolInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pool not found',
+      });
+    }
+
+    // Calculate current price
+    const price = calculatePrice(
+      poolInfo.solReserveInSol,
+      poolInfo.tokenReserveFormatted
+    );
+
+    return res.json({
+      success: true,
+      data: {
+        ...poolInfo,
+        currentPrice: price,
+        priceInSol: price.toFixed(9),
+      },
+    });
+  } catch (error: any) {
+    console.error('/pool-info error:', error);
     return res.status(500).json({
       success: false,
       error: error.message || 'Failed to fetch pool info',
@@ -518,84 +578,107 @@ app.get('/pool-info/:poolAddress', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /mint-and-create-pool
- * Combined endpoint: Mint a meme token and create an Orca pool for it
- * Body: { memeId: string }
- */
-app.post('/mint-and-create-pool', async (req: Request, res: Response) => {
+// Calculate swap quote (no transaction)
+app.post('/swap-quote', async (req: Request, res: Response) => {
   try {
-    const { memeId } = req.body;
+    const { tokenMint, inputToken, inputAmount } = req.body;
 
-    if (!memeId || typeof memeId !== 'string') {
+    if (!tokenMint || !inputToken || !inputAmount) {
       return res.status(400).json({
         success: false,
-        error: 'memeId (string) is required',
+        error: 'tokenMint, inputToken (SOL or TOKEN), and inputAmount are required',
       });
     }
 
-    console.log('[POST /mint-and-create-pool] Step 1: Minting token...');
-    const memeIdBuffer = stringToMemeId(memeId);
-    const mintResult = await mintMemeToken(memeIdBuffer);
+    const poolInfo = await getPoolInfo(tokenMint);
 
-    console.log('[POST /mint-and-create-pool] Step 2: Creating pool...');
-    const poolResult = await createOrcaPoolForMeme(mintResult.mint);
+    if (!poolInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pool not found',
+      });
+    }
+
+    let outputAmount: number;
+    let priceImpact: number;
+
+    if (inputToken.toUpperCase() === 'SOL') {
+      // Swapping SOL for tokens
+      outputAmount = calculateSwapOutput(
+        inputAmount,
+        poolInfo.solReserveInSol,
+        poolInfo.tokenReserveFormatted
+      );
+
+      priceImpact = (inputAmount / poolInfo.solReserveInSol) * 100;
+    } else {
+      // Swapping tokens for SOL
+      outputAmount = calculateSwapOutput(
+        inputAmount,
+        poolInfo.tokenReserveFormatted,
+        poolInfo.solReserveInSol
+      );
+
+      priceImpact = (inputAmount / poolInfo.tokenReserveFormatted) * 100;
+    }
+
+    const currentPrice = calculatePrice(
+      poolInfo.solReserveInSol,
+      poolInfo.tokenReserveFormatted
+    );
 
     return res.json({
       success: true,
-      message: 'Token minted and pool created successfully',
       data: {
-        mint: {
-          transactionId: mintResult.transactionId,
-          memeId: memeIdToString(mintResult.memeId),
-          mint: mintResult.mint.toBase58(),
-          vault: mintResult.vault.toBase58(),
-        },
-        pool: {
-          poolAddress: poolResult.poolAddress.toBase58(),
-          tokenMintA: poolResult.tokenMintA.toBase58(),
-          tokenMintB: poolResult.tokenMintB.toBase58(),
-          transactionSignature: poolResult.transactionSignature,
-          alreadyExisted: poolResult.alreadyExisted,
-        }
-      }
+        inputToken,
+        inputAmount,
+        outputAmount,
+        estimatedOutput: outputAmount.toFixed(9),
+        currentPrice,
+        priceImpact: priceImpact.toFixed(4) + '%',
+        fee: '0.3%',
+        minimumReceived: (outputAmount * 0.99).toFixed(9), // 1% slippage tolerance
+      },
     });
-
   } catch (error: any) {
-    console.error('[POST /mint-and-create-pool] Error:', error);
-    
-    let errorMessage = error?.message || 'Operation failed';
-    
-    if (errorMessage.includes('MemeAlreadyMinted')) {
-      return res.status(409).json({
-        success: false,
-        error: 'This meme has already been minted',
-      });
-    }
-
+    console.error('/swap-quote error:', error);
     return res.status(500).json({
       success: false,
-      error: errorMessage,
+      error: error.message || 'Failed to calculate quote',
     });
   }
 });
 
+// Update your server startup to include new endpoints
 app.listen(PORT, () => {
   console.log(`🚀 Server running at http://localhost:${PORT}`);
   console.log('\n📋 Available endpoints:');
+  console.log('\n=== Protocol Management ===');
   console.log('  POST   /initialize-protocol-state');
   console.log('  POST   /reset-protocol-state');
   console.log('  GET    /protocol-state');
+  console.log('  GET    /protocol-status');
+  
+  console.log('\n=== Token Minting ===');
   console.log('  POST   /mint-meme-token');
   console.log('  GET    /meme-token-state/:memeId');
-  console.log('  GET    /fee-vault-balance');
-  console.log('  GET    /minter-balance');
-  console.log('  GET    /protocol-status');
   console.log('  GET    /meme-token-distribution/:memeId');
   console.log('  GET    /token-balance/:tokenAccountAddress');
-  console.log('\n🌊 Orca Liquidity Pool endpoints:');
-  console.log('  POST   /create-pool');
+  
+  console.log('\n=== AMM / Liquidity Pool ===');
+  console.log('  POST   /create-amm-pool');
   console.log('  POST   /add-liquidity');
-  console.log('  GET    /pool-info/:poolAddress');
-  console.log('  POST   /mint-and-create-pool\n');
+  console.log('  POST   /remove-liquidity');
+  console.log('  POST   /swap-sol-for-tokens');
+  console.log('  POST   /swap-tokens-for-sol');
+  console.log('  GET    /pool-info/:tokenMint');
+  console.log('  POST   /swap-quote');
+  
+  console.log('\n=== Wallet Info ===');
+  console.log('  GET    /fee-vault-balance');
+  console.log('  GET    /minter-balance');
+  console.log('\n');
 });
+
+
+
