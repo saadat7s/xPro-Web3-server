@@ -13,102 +13,40 @@ import * as anchor from "@coral-xyz/anchor";
 import { 
   createMint,
   ASSOCIATED_TOKEN_PROGRAM_ID, 
-  TOKEN_PROGRAM_ID,  // Changed from TOKEN_2022_PROGRAM_ID
+  TOKEN_2022_PROGRAM_ID,
   createAssociatedTokenAccountInstruction, 
   getAssociatedTokenAddressSync 
 } from "@solana/spl-token";
 
-// Helper function to get the program
-export const getProgram = () => {
-  console.log("🔧 [getProgram] Initializing program connection...");
-  
-  const idl = require("./idl.json");
-  const walletKeypair = require("./admin_xPro_Web3_wallet-keypair.json");
+// Extracted helpers
+export {
+  MEME_TOKEN_STATE_SEED,
+  PROTOCOL_STATE_SEED,
+  FEE_VAULT_SEED,
+  VAULT_SEED,
+  generateMemeId,
+  getProtocolStatePda,
+  getFeeVaultPda,
+  getMemeTokenStatePda,
+  getVaultPda,
+  memeIdToString,
+  stringToMemeId,
+  lamportsToSol,
+  solToLamports,
+} from "./helpers";
+import {
+  getProtocolStatePda,
+  getFeeVaultPda,
+  getMemeTokenStatePda,
+  getVaultPda,
+  lamportsToSol,
+} from "./helpers";
+import { getProgram } from "./utils/getProgram";
 
-  const adminKeypair = Keypair.fromSecretKey(new Uint8Array(walletKeypair));
-  const adminPublicKey = adminKeypair.publicKey;
-  console.log("🔧 [getProgram] Admin public key:", adminPublicKey.toBase58());
+// Helper function to get the program (moved to utils)
+export { getProgram } from "./utils/getProgram";
 
-  const connection = new Connection("https://api.devnet.solana.com", "confirmed");
-  console.log("🔧 [getProgram] Connected to Solana devnet");
-
-  const programId = new PublicKey(
-    "BSpvB9QhMCyW4fjQx1AwN5zgkr4a8YftEDngHHPziByA"
-  );
-  console.log("🔧 [getProgram] Program ID:", programId.toBase58());
-
-  const provider = new anchor.AnchorProvider(
-    connection,
-    new anchor.Wallet(adminKeypair),
-    anchor.AnchorProvider.defaultOptions()
-  );
-  anchor.setProvider(provider);
-  console.log("🔧 [getProgram] Anchor provider initialized");
-
-  return {
-    program: new anchor.Program(idl, programId, provider),
-    adminPublicKey,
-    adminKeypair,
-    connection,    
-  };
-};
-
-export const MEME_TOKEN_STATE_SEED = "meme_token_state";
-export const PROTOCOL_STATE_SEED = "protocol_state_v2";
-export const FEE_VAULT_SEED = "fee_vault";
-export const VAULT_SEED = "vault";
-
-// === Helper: Generate random meme_id ===
-function generateMemeId(): Buffer {
-  console.log("🎲 [generateMemeId] Generating new meme ID...");
-  const memeId = anchor.utils.bytes.utf8.encode(crypto.randomUUID()).slice(0, 32) as Buffer;
-  console.log("🎲 [generateMemeId] Generated meme ID:", memeId.toString('hex'));
-  return memeId;
-}
-
-// === Helper: Derive protocol state PDA ===
-function getProtocolStatePda(programId: PublicKey): [PublicKey, number] {
-  console.log("📍 [getProtocolStatePda] Deriving protocol state PDA...");
-  const [pda, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(PROTOCOL_STATE_SEED)],
-    programId
-  );
-  console.log("📍 [getProtocolStatePda] Protocol state PDA:", pda.toBase58(), "bump:", bump);
-  return [pda, bump];
-}
-
-// === Helper: Derive fee vault PDA ===
-function getFeeVaultPda(programId: PublicKey): [PublicKey, number] {
-  console.log("💰 [getFeeVaultPda] Deriving fee vault PDA...");
-  const [pda, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(FEE_VAULT_SEED)],
-    programId
-  );
-  console.log("💰 [getFeeVaultPda] Fee vault PDA:", pda.toBase58(), "bump:", bump);
-  return [pda, bump];
-}
-
-// === Helper: Derive meme token state PDA ===
-function getMemeTokenStatePda(memeId: Buffer, programId: PublicKey): [PublicKey, number] {
-  console.log("🎭 [getMemeTokenStatePda] Deriving meme token state PDA for meme ID:", memeId.toString('hex'));
-  const [pda, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(MEME_TOKEN_STATE_SEED), memeId],
-    programId
-  );
-  console.log("🎭 [getMemeTokenStatePda] Meme token state PDA:", pda.toBase58(), "bump:", bump);
-  return [pda, bump];
-}
-
-// === Helper: Derive vault PDA for a specific mint ===
-export function getVaultPda(mint: PublicKey, programId: PublicKey): [PublicKey, number] {
-  console.log("🏦 [getVaultPda] Deriving vault PDA for mint:", mint.toBase58());
-  const [pda, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(VAULT_SEED), mint.toBuffer()],
-    programId
-  );
-  console.log("🏦 [getVaultPda] Vault PDA:", pda.toBase58(), "bump:", bump);
-  return [pda, bump];
-}
+// Note: Implementation of helpers moved to ./helpers and re-exported above
 
 // Creates an associated token account for a given mint and owner
 export async function createAssociatedTokenAccount(
@@ -123,7 +61,7 @@ export async function createAssociatedTokenAccount(
     mint,
     owner,
     false,
-    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID
   );
   console.log("🏗️ [createAssociatedTokenAccount] ATA address:", associatedTokenAddress.toBase58());
 
@@ -132,7 +70,7 @@ export async function createAssociatedTokenAccount(
     associatedTokenAddress,      // associated token account (to create)
     owner,                       // owner
     mint,                        // mint
-    TOKEN_PROGRAM_ID,            // Changed from TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID  // associated program id
   );
 
@@ -257,12 +195,12 @@ export async function mintMemeToken(memeId: Buffer) {
   const [feeVault] = getFeeVaultPda(program.programId);
 
   console.log("🎭 [mintMemeToken] Step 2: Calculating ATA addresses...");
-  // 2️⃣ Calculate ATA addresses with classic SPL Token
+  // 2️⃣ Calculate ATA addresses with Token2022
   const minterTokenAccount = getAssociatedTokenAddressSync(
     mintPDA,
     adminKeypair.publicKey,
     false,
-    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID
   );
   
   // Allow off-curve owner for PDA
@@ -270,7 +208,7 @@ export async function mintMemeToken(memeId: Buffer) {
     mintPDA,
     vault,
     true, // allowOwnerOffCurve = true for PDAs
-    TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+    TOKEN_2022_PROGRAM_ID
   );
 
   console.log("🎭 [mintMemeToken] === Account Summary ===");
@@ -296,10 +234,9 @@ export async function mintMemeToken(memeId: Buffer) {
         vaultTokenAccount,
         feeVault,
         protocolState,
-        tokenProgram: TOKEN_PROGRAM_ID,  // Changed from TOKEN_2022_PROGRAM_ID
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        rent: SYSVAR_RENT_PUBKEY,  // Added for classic token initialization
       })
       .rpc();
 
@@ -458,40 +395,7 @@ export async function getFeeVaultBalanceInSol(): Promise<number> {
 }
 
 // Convert meme ID to string for display
-export function memeIdToString(memeId: Buffer | number[]): string {
-  console.log("🔄 [memeIdToString] Converting meme ID to string...");
-  const buffer = Buffer.isBuffer(memeId) ? memeId : Buffer.from(memeId);
-  const result = buffer.toString('utf8').replace(/\0/g, '');
-  console.log("🔄 [memeIdToString] Input:", buffer.toString('hex'), "-> Output:", result);
-  return result;
-}
-
-// Convert string to meme ID buffer
-export function stringToMemeId(str: string): Buffer {
-  console.log("🔄 [stringToMemeId] Converting string to meme ID buffer...");
-  const buffer = Buffer.alloc(32);
-  Buffer.from(str, 'utf8').copy(buffer);
-  console.log("🔄 [stringToMemeId] Input:", str, "-> Output:", buffer.toString('hex'));
-  return buffer;
-}
-
-// === SOL Utility Functions ===
-
-// Convert lamports to SOL
-export function lamportsToSol(lamports: number): number {
-  console.log("💰 [lamportsToSol] Converting", lamports, "lamports to SOL...");
-  const sol = lamports / LAMPORTS_PER_SOL;
-  console.log("💰 [lamportsToSol] Result:", sol, "SOL");
-  return sol;
-}
-
-// Convert SOL to lamports
-export function solToLamports(sol: number): number {
-  console.log("💰 [solToLamports] Converting", sol, "SOL to lamports...");
-  const lamports = Math.floor(sol * LAMPORTS_PER_SOL);
-  console.log("💰 [solToLamports] Result:", lamports, "lamports");
-  return lamports;
-}
+// Utility helpers also moved and re-exported
 
 // Check if account has sufficient SOL for fee
 export async function hasEnoughSolForFee(publicKey: PublicKey, feeInLamports: number): Promise<boolean> {
