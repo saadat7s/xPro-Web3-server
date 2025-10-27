@@ -10,6 +10,7 @@ import {
   memeTokenDistributionController,
   allMemeTokenBalancesController,
   recentMintDistributionController,
+  getAllMintedTokensController,
 } from "../controllers/mintDetailsController";
 
 const router = Router();
@@ -25,6 +26,7 @@ router.get('/token-balance/:tokenAccountAddress', tokenAccountBalanceController)
 router.get('/meme-token-distribution/:memeId', memeTokenDistributionController);
 router.post('/meme-token-balances', allMemeTokenBalancesController);
 router.get('/meme-token-recent/:memeId', recentMintDistributionController);
+router.get('/all-minted-tokens', getAllMintedTokensController);
 
 export default router;
 

@@ -3,10 +3,11 @@ import { PublicKey } from "@solana/web3.js";
 import {
   createInitializeAmmPoolTransaction,
   createAddLiquidityTransaction,
-  createRemoveLiquidityTransaction,
-  createSwapSolForTokensTransaction,
-  createSwapTokensForSolTransaction,
+  // createRemoveLiquidityTransaction,
+  // createSwapSolForTokensTransaction,
+  // createSwapTokensForSolTransaction,
 } from "../services/poolCreationService";
+import { getPoolInfo } from "../ammService";
 
 export async function initializeAmmPoolTxController(req: Request, res: Response) {
   try {
@@ -63,86 +64,122 @@ export async function addLiquidityTxController(req: Request, res: Response) {
   }
 }
 
-export async function removeLiquidityTxController(req: Request, res: Response) {
+export async function getPoolInfoController(req: Request, res: Response) {
   try {
-    const { user, tokenMint, lpAmount, minSolAmount, minTokenAmount } = req.body as {
-      user: string;
-      tokenMint: string;
-      lpAmount: number | string;
-      minSolAmount?: number;
-      minTokenAmount?: number | string;
-    };
-
-    if (!user || !tokenMint || lpAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, lpAmount are required" });
+    const { tokenMint } = req.params as { tokenMint: string };
+    
+    if (!tokenMint) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenMint is required',
+      });
     }
 
-    let userPk: PublicKey;
-    try {
-      userPk = new PublicKey(user);
-    } catch (e) {
-      return res.status(400).json({ success: false, message: "Invalid user public key" });
+    const poolInfo = await getPoolInfo(tokenMint);
+    
+    if (!poolInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Pool not found',
+      });
     }
 
-    const result = await createRemoveLiquidityTransaction(userPk, tokenMint, lpAmount, minSolAmount ?? 0, minTokenAmount ?? 0);
-    return res.status(result.success ? 200 : 500).json(result);
+    return res.json({
+      success: true,
+      data: poolInfo,
+    });
   } catch (error: any) {
-    return res.status(500).json({ success: false, message: error?.message || String(error) });
+    console.error('/pool-info error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch pool info',
+    });
   }
 }
 
-export async function swapSolForTokensTxController(req: Request, res: Response) {
-  try {
-    const { user, tokenMint, solAmount, minTokenAmount } = req.body as {
-      user: string;
-      tokenMint: string;
-      solAmount: number;
-      minTokenAmount: number | string;
-    };
+// export async function removeLiquidityTxController(req: Request, res: Response) {
+//   try {
+//     const { user, tokenMint, lpAmount, minSolAmount, minTokenAmount } = req.body as {
+//       user: string;
+//       tokenMint: string;
+//       lpAmount: number | string;
+//       minSolAmount?: number;
+//       minTokenAmount?: number | string;
+//     };
 
-    if (!user || !tokenMint || solAmount == null || minTokenAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, solAmount, minTokenAmount are required" });
-    }
+//     if (!user || !tokenMint || lpAmount == null) {
+//       return res.status(400).json({ success: false, message: "user, tokenMint, lpAmount are required" });
+//     }
 
-    let userPk: PublicKey;
-    try {
-      userPk = new PublicKey(user);
-    } catch (e) {
-      return res.status(400).json({ success: false, message: "Invalid user public key" });
-    }
+//     let userPk: PublicKey;
+//     try {
+//       userPk = new PublicKey(user);
+//     } catch (e) {
+//       return res.status(400).json({ success: false, message: "Invalid user public key" });
+//     }
 
-    const result = await createSwapSolForTokensTransaction(userPk, tokenMint, solAmount, minTokenAmount);
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error?.message || String(error) });
-  }
-}
+//     const result = await createRemoveLiquidityTransaction(userPk, tokenMint, lpAmount, minSolAmount ?? 0, minTokenAmount ?? 0);
+//     return res.status(result.success ? 200 : 500).json(result);
+//   } catch (error: any) {
+//     return res.status(500).json({ success: false, message: error?.message || String(error) });
+//   }
+// }
 
-export async function swapTokensForSolTxController(req: Request, res: Response) {
-  try {
-    const { user, tokenMint, tokenAmount, minSolAmount } = req.body as {
-      user: string;
-      tokenMint: string;
-      tokenAmount: number | string;
-      minSolAmount: number;
-    };
+// export async function swapSolForTokensTxController(req: Request, res: Response) {
+//   try {
+//     const { user, tokenMint, solAmount, minTokenAmount } = req.body as {
+//       user: string;
+//       tokenMint: string;
+//       solAmount: number;
+//       minTokenAmount: number | string;
+//     };
 
-    if (!user || !tokenMint || tokenAmount == null || minSolAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, tokenAmount, minSolAmount are required" });
-    }
+//     if (!user || !tokenMint || solAmount == null || minTokenAmount == null) {
+//       return res.status(400).json({ success: false, message: "user, tokenMint, solAmount, minTokenAmount are required" });
+//     }
 
-    let userPk: PublicKey;
-    try {
-      userPk = new PublicKey(user);
-    } catch (e) {
-      return res.status(400).json({ success: false, message: "Invalid user public key" });
-    }
+//     let userPk: PublicKey;
+//     try {
+//       userPk = new PublicKey(user);
+//     } catch (e) {
+//       return res.status(400).json({ success: false, message: "Invalid user public key" });
+//     }
 
-    const result = await createSwapTokensForSolTransaction(userPk, tokenMint, tokenAmount, minSolAmount);
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error?.message || String(error) });
-  }
-}
+//     const result = await createSwapSolForTokensTransaction(userPk, tokenMint, solAmount, minTokenAmount);
+//     return res.status(result.success ? 200 : 500).json(result);
+//   } catch (error: any) {
+//     return res.status(500).json({ success: false, message: error?.message || String(error) });
+//   }
+// }
+
+// export async function swapTokensForSolTxController(req: Request, res: Response) {
+//   try {
+//     const { user, tokenMint, tokenAmount, minSolAmount } = req.body as {
+//       user: string;
+//       tokenMint: string;
+//       tokenAmount: number | string;
+//       minSolAmount: number;
+//     };
+
+//     if (!user || !tokenMint || tokenAmount == null || minSolAmount == null) {
+//       return res.status(400).json({ success: false, message: "user, tokenMint, tokenAmount, minSolAmount are required" });
+//     }
+
+//     let userPk: PublicKey;
+//     try {
+//       userPk = new PublicKey(user);
+//     } catch (e) {
+//       return res.status(400).json({ success: false, message: "Invalid user public key" });
+//     }
+
+//     const result = await createSwapTokensForSolTransaction(userPk, tokenMint, tokenAmount, minSolAmount);
+//     return res.status(result.success ? 200 : 500).json(result);
+//   } catch (error: any) {
+//     return res.status(500).json({ success: false, message: error?.message || String(error) });
+//   }
+// }
+
+
+
 
 

@@ -184,211 +184,211 @@ export async function createAddLiquidityTransaction(
   }
 }
 
-// === Remove Liquidity (unsigned) ===
-export async function createRemoveLiquidityTransaction(
-  userPublicKey: PublicKey,
-  tokenMintAddress: string,
-  lpAmount: number | string,
-  minSolAmount: number = 0,
-  minTokenAmount: number | string = 0,
-) {
-  const { program, connection } = getProgram();
-  const tokenMint = new PublicKey(tokenMintAddress);
+// // === Remove Liquidity (unsigned) ===
+// export async function createRemoveLiquidityTransaction(
+//   userPublicKey: PublicKey,
+//   tokenMintAddress: string,
+//   lpAmount: number | string,
+//   minSolAmount: number = 0,
+//   minTokenAmount: number | string = 0,
+// ) {
+//   const { program, connection } = getProgram();
+//   const tokenMint = new PublicKey(tokenMintAddress);
 
-  const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
-  const [lpMintPda] = getLpMintPda(tokenMint, program.programId);
-  const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
-  const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
+//   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
+//   const [lpMintPda] = getLpMintPda(tokenMint, program.programId);
+//   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
+//   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    userPublicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID,
-  );
+//   const userTokenAccount = getAssociatedTokenAddressSync(
+//     tokenMint,
+//     userPublicKey,
+//     false,
+//     TOKEN_2022_PROGRAM_ID,
+//   );
 
-  const userLpAccount = getAssociatedTokenAddressSync(
-    lpMintPda,
-    userPublicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID,
-  );
+//   const userLpAccount = getAssociatedTokenAddressSync(
+//     lpMintPda,
+//     userPublicKey,
+//     false,
+//     TOKEN_2022_PROGRAM_ID,
+//   );
 
-  try {
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
+//   try {
+//     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    const transaction = await program.methods
-      .removeLiquidityFromPool(
-        new anchor.BN(lpAmount.toString()),
-        new anchor.BN(minSolAmount),
-        new anchor.BN(minTokenAmount.toString()),
-      )
-      .accounts({
-        user: userPublicKey,
-        pool: poolPda,
-        tokenMint,
-        lpMint: lpMintPda,
-        solVault: solVaultPda,
-        tokenVault: tokenVaultPda,
-        userTokenAccount,
-        userLpAccount,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
+//     const transaction = await program.methods
+//       .removeLiquidityFromPool(
+//         new anchor.BN(lpAmount.toString()),
+//         new anchor.BN(minSolAmount),
+//         new anchor.BN(minTokenAmount.toString()),
+//       )
+//       .accounts({
+//         user: userPublicKey,
+//         pool: poolPda,
+//         tokenMint,
+//         lpMint: lpMintPda,
+//         solVault: solVaultPda,
+//         tokenVault: tokenVaultPda,
+//         userTokenAccount,
+//         userLpAccount,
+//         tokenProgram: TOKEN_2022_PROGRAM_ID,
+//         systemProgram: SystemProgram.programId,
+//       })
+//       .transaction();
 
-    transaction.feePayer = userPublicKey;
-    transaction.recentBlockhash = blockhash;
+//     transaction.feePayer = userPublicKey;
+//     transaction.recentBlockhash = blockhash;
 
-    return {
-      success: true,
-      message: "Remove liquidity transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-      accounts: {
-        pool: poolPda.toString(),
-        tokenMint: tokenMint.toString(),
-        lpMint: lpMintPda.toString(),
-        solVault: solVaultPda.toString(),
-        tokenVault: tokenVaultPda.toString(),
-        userTokenAccount: userTokenAccount.toString(),
-        userLpAccount: userLpAccount.toString(),
-      },
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: `Error creating remove liquidity transaction: ${error.message || error}`,
-    };
-  }
-}
+//     return {
+//       success: true,
+//       message: "Remove liquidity transaction created successfully!",
+//       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+//       accounts: {
+//         pool: poolPda.toString(),
+//         tokenMint: tokenMint.toString(),
+//         lpMint: lpMintPda.toString(),
+//         solVault: solVaultPda.toString(),
+//         tokenVault: tokenVaultPda.toString(),
+//         userTokenAccount: userTokenAccount.toString(),
+//         userLpAccount: userLpAccount.toString(),
+//       },
+//     };
+//   } catch (error: any) {
+//     return {
+//       success: false,
+//       message: `Error creating remove liquidity transaction: ${error.message || error}`,
+//     };
+//   }
+// }
 
-// === Swap SOL for Tokens (unsigned) ===
-export async function createSwapSolForTokensTransaction(
-  userPublicKey: PublicKey,
-  tokenMintAddress: string,
-  solAmount: number,
-  minTokenAmount: number | string,
-) {
-  const { program, connection } = getProgram();
-  const tokenMint = new PublicKey(tokenMintAddress);
-  const solLamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
+// // === Swap SOL for Tokens (unsigned) ===
+// export async function createSwapSolForTokensTransaction(
+//   userPublicKey: PublicKey,
+//   tokenMintAddress: string,
+//   solAmount: number,
+//   minTokenAmount: number | string,
+// ) {
+//   const { program, connection } = getProgram();
+//   const tokenMint = new PublicKey(tokenMintAddress);
+//   const solLamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
 
-  const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
-  const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
-  const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
+//   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
+//   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
+//   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    userPublicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID,
-  );
+//   const userTokenAccount = getAssociatedTokenAddressSync(
+//     tokenMint,
+//     userPublicKey,
+//     false,
+//     TOKEN_2022_PROGRAM_ID,
+//   );
 
-  try {
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
+//   try {
+//     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    const transaction = await program.methods
-      .swapSolToTokens(
-        new anchor.BN(solLamports),
-        new anchor.BN(minTokenAmount.toString()),
-      )
-      .accounts({
-        user: userPublicKey,
-        pool: poolPda,
-        tokenMint,
-        solVault: solVaultPda,
-        tokenVault: tokenVaultPda,
-        userTokenAccount,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
+//     const transaction = await program.methods
+//       .swapSolToTokens(
+//         new anchor.BN(solLamports),
+//         new anchor.BN(minTokenAmount.toString()),
+//       )
+//       .accounts({
+//         user: userPublicKey,
+//         pool: poolPda,
+//         tokenMint,
+//         solVault: solVaultPda,
+//         tokenVault: tokenVaultPda,
+//         userTokenAccount,
+//         tokenProgram: TOKEN_2022_PROGRAM_ID,
+//         systemProgram: SystemProgram.programId,
+//       })
+//       .transaction();
 
-    transaction.feePayer = userPublicKey;
-    transaction.recentBlockhash = blockhash;
+//     transaction.feePayer = userPublicKey;
+//     transaction.recentBlockhash = blockhash;
 
-    return {
-      success: true,
-      message: "Swap SOL for tokens transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-      accounts: {
-        pool: poolPda.toString(),
-        tokenMint: tokenMint.toString(),
-        solVault: solVaultPda.toString(),
-        tokenVault: tokenVaultPda.toString(),
-        userTokenAccount: userTokenAccount.toString(),
-      },
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: `Error creating swap SOL for tokens transaction: ${error.message || error}`,
-    };
-  }
-}
+//     return {
+//       success: true,
+//       message: "Swap SOL for tokens transaction created successfully!",
+//       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+//       accounts: {
+//         pool: poolPda.toString(),
+//         tokenMint: tokenMint.toString(),
+//         solVault: solVaultPda.toString(),
+//         tokenVault: tokenVaultPda.toString(),
+//         userTokenAccount: userTokenAccount.toString(),
+//       },
+//     };
+//   } catch (error: any) {
+//     return {
+//       success: false,
+//       message: `Error creating swap SOL for tokens transaction: ${error.message || error}`,
+//     };
+//   }
+// }
 
-// === Swap Tokens for SOL (unsigned) ===
-export async function createSwapTokensForSolTransaction(
-  userPublicKey: PublicKey,
-  tokenMintAddress: string,
-  tokenAmount: number | string,
-  minSolAmount: number,
-) {
-  const { program, connection } = getProgram();
-  const tokenMint = new PublicKey(tokenMintAddress);
+// // === Swap Tokens for SOL (unsigned) ===
+// export async function createSwapTokensForSolTransaction(
+//   userPublicKey: PublicKey,
+//   tokenMintAddress: string,
+//   tokenAmount: number | string,
+//   minSolAmount: number,
+// ) {
+//   const { program, connection } = getProgram();
+//   const tokenMint = new PublicKey(tokenMintAddress);
 
-  const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
-  const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
-  const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
+//   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
+//   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
+//   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    userPublicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID,
-  );
+//   const userTokenAccount = getAssociatedTokenAddressSync(
+//     tokenMint,
+//     userPublicKey,
+//     false,
+//     TOKEN_2022_PROGRAM_ID,
+//   );
 
-  try {
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
+//   try {
+//     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    const transaction = await program.methods
-      .swapTokensToSol(
-        new anchor.BN(tokenAmount.toString()),
-        new anchor.BN(minSolAmount),
-      )
-      .accounts({
-        user: userPublicKey,
-        pool: poolPda,
-        tokenMint,
-        solVault: solVaultPda,
-        tokenVault: tokenVaultPda,
-        userTokenAccount,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .transaction();
+//     const transaction = await program.methods
+//       .swapTokensToSol(
+//         new anchor.BN(tokenAmount.toString()),
+//         new anchor.BN(minSolAmount),
+//       )
+//       .accounts({
+//         user: userPublicKey,
+//         pool: poolPda,
+//         tokenMint,
+//         solVault: solVaultPda,
+//         tokenVault: tokenVaultPda,
+//         userTokenAccount,
+//         tokenProgram: TOKEN_2022_PROGRAM_ID,
+//         systemProgram: SystemProgram.programId,
+//       })
+//       .transaction();
 
-    transaction.feePayer = userPublicKey;
-    transaction.recentBlockhash = blockhash;
+//     transaction.feePayer = userPublicKey;
+//     transaction.recentBlockhash = blockhash;
 
-    return {
-      success: true,
-      message: "Swap tokens for SOL transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-      accounts: {
-        pool: poolPda.toString(),
-        tokenMint: tokenMint.toString(),
-        solVault: solVaultPda.toString(),
-        tokenVault: tokenVaultPda.toString(),
-        userTokenAccount: userTokenAccount.toString(),
-      },
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: `Error creating swap tokens for SOL transaction: ${error.message || error}`,
-    };
-  }
-}
+//     return {
+//       success: true,
+//       message: "Swap tokens for SOL transaction created successfully!",
+//       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
+//       accounts: {
+//         pool: poolPda.toString(),
+//         tokenMint: tokenMint.toString(),
+//         solVault: solVaultPda.toString(),
+//         tokenVault: tokenVaultPda.toString(),
+//         userTokenAccount: userTokenAccount.toString(),
+//       },
+//     };
+//   } catch (error: any) {
+//     return {
+//       success: false,
+//       message: `Error creating swap tokens for SOL transaction: ${error.message || error}`,
+//     };
+//   }
+// }
 
 

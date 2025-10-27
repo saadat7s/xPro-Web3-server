@@ -1,11 +1,12 @@
-import { getAccount, TokenAccountNotFoundError, TokenInvalidAccountOwnerError } from "@solana/spl-token";
+import { getAccount, TokenAccountNotFoundError, TokenInvalidAccountOwnerError, getMint } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import { getProgram } from "./service";
-import { TOKEN_PROGRAM_ID } from "@solana/spl-token";  // Changed from TOKEN_2022_PROGRAM_ID
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";  // Changed from TOKEN_2022_PROGRAM_ID
 import { getVaultPda } from "./service";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
-import { memeIdToString } from "./service";
-import { stringToMemeId } from "./service";
+import { memeIdToString } from "./helpers";
+import { stringToMemeId } from "./helpers";
+import { getMemeTokenStatePda } from "./helpers";
 
 // === Get Token Balance for any token account ===
 export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
@@ -21,7 +22,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
       connection,
       tokenAccountAddress,
       undefined,
-      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
     
     return {
@@ -79,14 +80,14 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
       mintPDA,
       adminKeypair.publicKey,
       false,
-      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
     
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       mintPDA,
       vault,
       true, // allowOwnerOffCurve for PDA
-      TOKEN_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
 
     // Get balances
@@ -206,4 +207,36 @@ export async function getRecentMintDistribution(memeIdString: string) {
       vaultShare: distribution.distributionSummary.vaultShare.toFixed(4) + '%',
     }
   };
+}
+
+
+// === Get all minted tokens (from all users) ===
+export async function getAllMintedTokens(): Promise<Array<{
+  memeId: string;
+  memeIdHex: string;
+  mint: string;
+  minter: string;
+  createdAt: string;
+  isInitialized: boolean;
+}>> {
+  const { program } = getProgram();
+
+  try {
+    const memeTokenStates = await program.account.memeTokenState.all();
+    
+    return memeTokenStates.map((state) => {
+      const account = state.account as any;
+      return {
+        memeId: memeIdToString(account.memeId),
+        memeIdHex: account.memeId.toString('hex'),
+        mint: account.mint.toBase58(),
+        minter: account.minter.toBase58(),
+        createdAt: account.createdAt.toString(),
+        isInitialized: account.isInitialized === 1,
+      };
+    });
+  } catch (error) {
+    console.error("Error fetching all minted tokens:", error);
+    return [];
+  }
 }

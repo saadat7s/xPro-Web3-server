@@ -6,6 +6,7 @@ import {
   getAllMemeTokenBalances,
   getRecentMintDistribution,
   formatTokenAmount,
+  getAllMintedTokens,
 } from "../mintDetails";
 import { stringToMemeId } from "../helpers";
 
@@ -84,6 +85,24 @@ export async function recentMintDistributionController(req: Request, res: Respon
 
     return res.json({ success: true, data: result });
   } catch (error: any) {
+    return res.status(500).json({ success: false, message: error?.message || String(error) });
+  }
+}
+
+export async function getAllMintedTokensController(req: Request, res: Response) {
+  try {
+    const tokens = await getAllMintedTokens();
+    
+    return res.json({
+      success: true,
+      message: "All minted tokens retrieved successfully",
+      data: {
+        count: tokens.length,
+        tokens: tokens
+      }
+    });
+  } catch (error: any) {
+    console.error('/all-minted-tokens error:', error);
     return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }

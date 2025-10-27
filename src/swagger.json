@@ -1,40 +1,39 @@
 {
   "openapi": "3.0.0",
   "info": {
-    "title": "Meme Token & AMM API",
-    "description": "API for managing meme tokens and automated market maker (AMM) pools on Solana blockchain",
+    "title": "Meme Token API",
     "version": "1.0.0",
+    "description": "API for minting and managing meme tokens on Solana blockchain",
     "contact": {
-      "name": "API Support",
-      "email": "support@example.com"
-    },
-    "license": {
-      "name": "MIT",
-      "url": "https://opensource.org/licenses/MIT"
+      "name": "API Support"
     }
   },
   "servers": [
     {
       "url": "http://localhost:5000",
-      "description": "Development server"
+      "description": "Local development server"
     }
   ],
   "tags": [
     {
-      "name": "Meme Token",
-      "description": "Operations related to meme token management"
+      "name": "Transactions",
+      "description": "Unsigned transaction generation endpoints"
+    },
+    {
+      "name": "Mint Details",
+      "description": "Token balance and distribution query endpoints"
     },
     {
       "name": "AMM Pool",
-      "description": "Operations related to automated market maker pools"
+      "description": "Automated Market Maker pool creation and liquidity management endpoints"
     }
   ],
   "paths": {
     "/meme/tx/initialize-protocol": {
       "post": {
-        "tags": ["Meme Token"],
-        "summary": "Initialize protocol state",
-        "description": "Creates a transaction to initialize the protocol state with admin authority and fee configuration",
+        "tags": ["Transactions"],
+        "summary": "Initialize protocol transaction",
+        "description": "Generates an unsigned transaction to initialize the protocol",
         "operationId": "initializeProtocol",
         "requestBody": {
           "required": true,
@@ -42,27 +41,23 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/InitializeProtocolRequest"
-              },
-              "example": {
-                "admin": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY",
-                "feeLamports": 1000000
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Protocol initialization transaction created successfully",
+            "description": "Transaction created successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/InitializeProtocolResponse"
+                  "$ref": "#/components/schemas/TransactionResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request",
             "content": {
               "application/json": {
                 "schema": {
@@ -86,9 +81,9 @@
     },
     "/meme/tx/reset-protocol": {
       "post": {
-        "tags": ["Meme Token"],
-        "summary": "Reset protocol state",
-        "description": "Creates a transaction to reset the protocol state to its initial configuration",
+        "tags": ["Transactions"],
+        "summary": "Reset protocol transaction",
+        "description": "Generates an unsigned transaction to reset the protocol",
         "operationId": "resetProtocol",
         "requestBody": {
           "required": true,
@@ -96,26 +91,23 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ResetProtocolRequest"
-              },
-              "example": {
-                "admin": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Protocol reset transaction created successfully",
+            "description": "Transaction created successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ResetProtocolResponse"
+                  "$ref": "#/components/schemas/TransactionResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request",
             "content": {
               "application/json": {
                 "schema": {
@@ -139,9 +131,9 @@
     },
     "/meme/tx/mint-meme": {
       "post": {
-        "tags": ["Meme Token"],
-        "summary": "Mint meme token",
-        "description": "Creates a transaction to mint a new meme token with the specified meme ID",
+        "tags": ["Transactions"],
+        "summary": "Mint meme token transaction",
+        "description": "Generates an unsigned transaction to mint a new meme token",
         "operationId": "mintMeme",
         "requestBody": {
           "required": true,
@@ -149,27 +141,23 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MintMemeRequest"
-              },
-              "example": {
-                "minter": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY",
-                "memeId": "my-unique-meme-id"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Meme token mint transaction created successfully",
+            "description": "Transaction created successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MintMemeResponse"
+                  "$ref": "#/components/schemas/TransactionResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request",
             "content": {
               "application/json": {
                 "schema": {
@@ -193,38 +181,95 @@
     },
     "/meme/tx/create-ata": {
       "post": {
-        "tags": ["Meme Token"],
-        "summary": "Create associated token account",
-        "description": "Creates a transaction to create an associated token account for the specified mint and owner",
-        "operationId": "createATA",
+        "tags": ["Transactions"],
+        "summary": "Create Associated Token Account transaction",
+        "description": "Generates an unsigned transaction to create an Associated Token Account",
+        "operationId": "createAta",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateATARequest"
-              },
-              "example": {
-                "payer": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY",
-                "mint": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh",
-                "owner": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
+                "$ref": "#/components/schemas/CreateAtaRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Associated token account creation transaction created successfully",
+            "description": "Transaction created successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateATAResponse"
+                  "$ref": "#/components/schemas/TransactionResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/meme/token-balance/{tokenAccountAddress}": {
+      "get": {
+        "tags": ["Mint Details"],
+        "summary": "Get token account balance",
+        "description": "Retrieves the balance of a specific token account",
+        "operationId": "getTokenBalance",
+        "parameters": [
+          {
+            "name": "tokenAccountAddress",
+            "in": "path",
+            "required": true,
+            "description": "The public key address of the token account",
+            "schema": {
+              "type": "string",
+              "example": "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token balance retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenBalanceResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token account address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token account not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -248,25 +293,25 @@
     },
     "/meme/meme-token-distribution/{memeId}": {
       "get": {
-        "tags": ["Meme Token"],
+        "tags": ["Mint Details"],
         "summary": "Get meme token distribution",
-        "description": "Retrieves the token distribution information for a specific meme token",
+        "description": "Retrieves the distribution details of a meme token including minter and vault balances",
         "operationId": "getMemeTokenDistribution",
         "parameters": [
           {
             "name": "memeId",
             "in": "path",
             "required": true,
-            "description": "The unique identifier of the meme token",
+            "description": "The meme ID to query",
             "schema": {
               "type": "string",
-              "example": "my-unique-meme-id"
+              "example": "meme_abc123"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Token distribution retrieved successfully",
+            "description": "Distribution retrieved successfully",
             "content": {
               "application/json": {
                 "schema": {
@@ -275,8 +320,68 @@
               }
             }
           },
+          "400": {
+            "description": "Invalid meme ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Meme token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/meme/meme-token-balances": {
+      "post": {
+        "tags": ["Mint Details"],
+        "summary": "Get multiple meme token balances",
+        "description": "Retrieves balance information for multiple meme tokens",
+        "operationId": "getAllMemeTokenBalances",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemeTokenBalancesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Balances retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemeTokenBalancesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
             "content": {
               "application/json": {
                 "schema": {
@@ -300,29 +405,39 @@
     },
     "/meme/meme-token-recent/{memeId}": {
       "get": {
-        "tags": ["Meme Token"],
-        "summary": "Get recent meme token information",
-        "description": "Retrieves recent information about a specific meme token including supply and distribution",
-        "operationId": "getMemeTokenRecent",
+        "tags": ["Mint Details"],
+        "summary": "Get recent mint distribution",
+        "description": "Retrieves formatted distribution details for a recently minted token",
+        "operationId": "getRecentMintDistribution",
         "parameters": [
           {
             "name": "memeId",
             "in": "path",
             "required": true,
-            "description": "The unique identifier of the meme token",
+            "description": "The meme ID to query",
             "schema": {
               "type": "string",
-              "example": "my-unique-meme-id"
+              "example": "meme_abc123"
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Recent token information retrieved successfully",
+            "description": "Distribution retrieved successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemeTokenRecentResponse"
+                  "$ref": "#/components/schemas/RecentMintDistributionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid meme ID",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
                 }
               }
             }
@@ -350,41 +465,65 @@
         }
       }
     },
-    "/amm/tx/create-amm-pool": {
+    "/meme/all-minted-tokens": {
+      "get": {
+        "tags": ["Mint Details"],
+        "summary": "Get all minted tokens",
+        "description": "Retrieves a list of all meme tokens that have been minted across all users",
+        "operationId": "getAllMintedTokens",
+        "responses": {
+          "200": {
+            "description": "All minted tokens retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllMintedTokensResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/amm/create-amm-pool": {
       "post": {
         "tags": ["AMM Pool"],
-        "summary": "Create AMM pool",
-        "description": "Creates a transaction to initialize a new automated market maker (AMM) pool with initial liquidity",
-        "operationId": "createAMMPool",
+        "summary": "Initialize AMM pool",
+        "description": "Creates a new Automated Market Maker liquidity pool for a token with initial SOL and token deposits",
+        "operationId": "createAmmPool",
         "requestBody": {
           "required": true,
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateAMMPoolRequest"
-              },
-              "example": {
-                "initializer": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY",
-                "tokenMint": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh",
-                "initialSolAmount": 1.0,
-                "initialTokenAmount": "1000000000"
+                "$ref": "#/components/schemas/CreateAmmPoolRequest"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "AMM pool creation transaction created successfully",
+            "description": "AMM pool created successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CreateAMMPoolResponse"
+                  "$ref": "#/components/schemas/AmmPoolResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request - missing required fields",
             "content": {
               "application/json": {
                 "schema": {
@@ -406,11 +545,11 @@
         }
       }
     },
-    "/amm/tx/add-liquidity": {
+    "/amm/add-liquidity": {
       "post": {
         "tags": ["AMM Pool"],
         "summary": "Add liquidity to pool",
-        "description": "Creates a transaction to add liquidity to an existing AMM pool",
+        "description": "Adds liquidity to an existing AMM pool by depositing SOL and tokens proportionally",
         "operationId": "addLiquidity",
         "requestBody": {
           "required": true,
@@ -418,30 +557,85 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AddLiquidityRequest"
-              },
-              "example": {
-                "user": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY",
-                "tokenMint": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh",
-                "solAmount": 0.5,
-                "maxTokenAmount": "500000000",
-                "minLpAmount": "1000000"
               }
             }
           }
         },
         "responses": {
           "200": {
-            "description": "Add liquidity transaction created successfully",
+            "description": "Liquidity added successfully",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AddLiquidityResponse"
+                  "$ref": "#/components/schemas/LiquidityResponse"
                 }
               }
             }
           },
           "400": {
-            "description": "Bad request - Invalid input parameters",
+            "description": "Bad request - missing required fields",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/amm/pool-info/{tokenMint}": {
+      "get": {
+        "tags": ["AMM Pool"],
+        "summary": "Get pool information",
+        "description": "Retrieves detailed information about an AMM pool including reserves, LP supply, and pool addresses",
+        "operationId": "getPoolInfo",
+        "parameters": [
+          {
+            "name": "tokenMint",
+            "in": "path",
+            "required": true,
+            "description": "The token mint address of the pool",
+            "schema": {
+              "type": "string",
+              "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Pool information retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PoolInfoResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid token mint address",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pool not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -468,299 +662,257 @@
     "schemas": {
       "InitializeProtocolRequest": {
         "type": "object",
-        "required": ["admin", "feeLamports"],
         "properties": {
-          "admin": {
+          "adminPublicKey": {
             "type": "string",
-            "description": "The public key of the protocol admin",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
-          },
-          "feeLamports": {
-            "type": "integer",
-            "description": "The fee amount in lamports",
-            "example": 1000000,
-            "minimum": 0
+            "description": "The admin's public key",
+            "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
           }
-        }
-      },
-      "InitializeProtocolResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the operation was successful",
-            "example": true
-          },
-          "message": {
-            "type": "string",
-            "description": "Success message",
-            "example": "Initialize protocol state transaction created successfully!"
-          },
-          "transaction": {
-            "type": "string",
-            "description": "Base64 encoded serialized transaction"
-          },
-          "accounts": {
-            "type": "object",
-            "description": "Account addresses involved in the transaction",
-            "properties": {
-              "protocolState": {
-                "type": "string",
-                "description": "Protocol state account address"
-              },
-              "feeVault": {
-                "type": "string",
-                "description": "Fee vault account address"
-              },
-              "authority": {
-                "type": "string",
-                "description": "Authority account address"
-              }
-            }
-          }
-        }
+        },
+        "required": ["adminPublicKey"]
       },
       "ResetProtocolRequest": {
         "type": "object",
-        "required": ["admin"],
         "properties": {
-          "admin": {
+          "adminPublicKey": {
             "type": "string",
-            "description": "The public key of the protocol admin",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
+            "description": "The admin's public key",
+            "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
           }
-        }
-      },
-      "ResetProtocolResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the operation was successful",
-            "example": true
-          },
-          "message": {
-            "type": "string",
-            "description": "Success message",
-            "example": "Reset protocol state transaction created successfully!"
-          },
-          "transaction": {
-            "type": "string",
-            "description": "Base64 encoded serialized transaction"
-          },
-          "accounts": {
-            "type": "object",
-            "description": "Account addresses involved in the transaction",
-            "properties": {
-              "protocolState": {
-                "type": "string",
-                "description": "Protocol state account address"
-              },
-              "authority": {
-                "type": "string",
-                "description": "Authority account address"
-              }
-            }
-          }
-        }
+        },
+        "required": ["adminPublicKey"]
       },
       "MintMemeRequest": {
         "type": "object",
-        "required": ["minter", "memeId"],
         "properties": {
-          "minter": {
-            "type": "string",
-            "description": "The public key of the minter",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
-          },
           "memeId": {
             "type": "string",
-            "description": "Unique identifier for the meme token",
-            "example": "my-unique-meme-id"
+            "description": "Unique identifier for the meme",
+            "example": "meme_abc123"
+          },
+          "minterPublicKey": {
+            "type": "string",
+            "description": "The minter's public key",
+            "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
           }
-        }
+        },
+        "required": ["memeId", "minterPublicKey"]
       },
-      "MintMemeResponse": {
+      "CreateAtaRequest": {
         "type": "object",
         "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the operation was successful",
-            "example": true
-          },
-          "message": {
-            "type": "string",
-            "description": "Success message",
-            "example": "Mint meme token transaction created successfully!"
-          },
-          "transaction": {
-            "type": "string",
-            "description": "Base64 encoded serialized transaction"
-          },
-          "accounts": {
-            "type": "object",
-            "description": "Account addresses involved in the transaction",
-            "properties": {
-              "memeId": {
-                "type": "string",
-                "description": "Meme ID in hex format"
-              },
-              "mint": {
-                "type": "string",
-                "description": "Token mint address"
-              },
-              "minter": {
-                "type": "string",
-                "description": "Minter account address"
-              },
-              "memeTokenState": {
-                "type": "string",
-                "description": "Meme token state account address"
-              },
-              "vault": {
-                "type": "string",
-                "description": "Vault account address"
-              },
-              "minterTokenAccount": {
-                "type": "string",
-                "description": "Minter's token account address"
-              },
-              "vaultTokenAccount": {
-                "type": "string",
-                "description": "Vault's token account address"
-              },
-              "feeVault": {
-                "type": "string",
-                "description": "Fee vault account address"
-              },
-              "protocolState": {
-                "type": "string",
-                "description": "Protocol state account address"
-              }
-            }
-          }
-        }
-      },
-      "CreateATARequest": {
-        "type": "object",
-        "required": ["payer", "mint", "owner"],
-        "properties": {
-          "payer": {
-            "type": "string",
-            "description": "The public key of the payer for the account creation",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
-          },
           "mint": {
             "type": "string",
             "description": "The token mint address",
-            "example": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh"
+            "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
           },
           "owner": {
             "type": "string",
-            "description": "The owner of the associated token account",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
+            "description": "The owner's public key",
+            "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
           }
-        }
+        },
+        "required": ["mint", "owner"]
       },
-      "CreateATAResponse": {
+      "TransactionResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "Whether the operation was successful",
             "example": true
           },
           "message": {
             "type": "string",
-            "description": "Success message",
-            "example": "Create associated token account transaction created successfully!"
+            "example": "Transaction created successfully"
           },
-          "transaction": {
-            "type": "string",
-            "description": "Base64 encoded serialized transaction"
-          },
-          "accounts": {
+          "data": {
             "type": "object",
-            "description": "Account addresses involved in the transaction",
             "properties": {
-              "associatedTokenAccount": {
+              "transaction": {
                 "type": "string",
-                "description": "Created associated token account address"
+                "description": "Base64 encoded unsigned transaction",
+                "example": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABAAEDArczbMIA..."
               },
-              "owner": {
+              "message": {
                 "type": "string",
-                "description": "Owner account address"
-              },
-              "mint": {
-                "type": "string",
-                "description": "Token mint address"
+                "example": "Please sign and send this transaction"
               }
             }
           }
-        }
+        },
+        "required": ["success", "data"]
+      },
+      "TokenBalanceResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "balance": {
+                "type": "string",
+                "description": "Raw balance amount",
+                "example": "1000000000000000000"
+              },
+              "balanceNumber": {
+                "type": "number",
+                "description": "Balance as a number",
+                "example": 1000000000000000000
+              },
+              "decimals": {
+                "type": "integer",
+                "description": "Number of decimals",
+                "example": 9
+              },
+              "mint": {
+                "type": "object",
+                "description": "Token mint public key object"
+              }
+            },
+            "required": ["balance", "balanceNumber", "decimals", "mint"]
+          }
+        },
+        "required": ["success", "data"]
       },
       "MemeTokenDistributionResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "Whether the operation was successful",
             "example": true
           },
           "data": {
             "type": "object",
             "properties": {
               "mint": {
-                "type": "string",
-                "description": "Token mint address",
-                "example": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh"
+                "type": "object",
+                "description": "Token mint public key"
               },
               "totalSupply": {
                 "type": "string",
-                "description": "Total token supply",
                 "example": "1000000000000000000"
               },
               "minterBalance": {
-                "type": "string",
+                "type": "object",
                 "nullable": true,
-                "description": "Balance held by the minter"
+                "properties": {
+                  "address": {
+                    "type": "object",
+                    "description": "Minter's token account address"
+                  },
+                  "balance": {
+                    "type": "string",
+                    "example": "20000000000000000"
+                  },
+                  "balanceNumber": {
+                    "type": "number",
+                    "example": 20000000000000000
+                  },
+                  "percentage": {
+                    "type": "number",
+                    "example": 2
+                  }
+                }
               },
               "vaultBalance": {
-                "type": "string",
+                "type": "object",
                 "nullable": true,
-                "description": "Balance held in the vault"
+                "properties": {
+                  "address": {
+                    "type": "object",
+                    "description": "Vault's token account address"
+                  },
+                  "balance": {
+                    "type": "string",
+                    "example": "980000000000000000"
+                  },
+                  "balanceNumber": {
+                    "type": "number",
+                    "example": 980000000000000000
+                  },
+                  "percentage": {
+                    "type": "number",
+                    "example": 98
+                  }
+                }
               },
               "distributionSummary": {
                 "type": "object",
                 "properties": {
                   "totalDistributed": {
                     "type": "number",
-                    "description": "Total amount distributed"
+                    "example": 1000000000000000000
                   },
                   "minterShare": {
                     "type": "number",
-                    "description": "Percentage share held by minter"
+                    "example": 2
                   },
                   "vaultShare": {
                     "type": "number",
-                    "description": "Percentage share held by vault"
+                    "example": 98
                   },
                   "isCorrectDistribution": {
                     "type": "boolean",
-                    "description": "Whether the distribution matches expected ratios"
+                    "example": true
                   }
                 }
               }
             }
           }
-        }
+        },
+        "required": ["success", "data"]
       },
-      "MemeTokenRecentResponse": {
+      "MemeTokenBalancesRequest": {
+        "type": "object",
+        "properties": {
+          "memeIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "example": ["meme_abc123", "meme_def456"]
+          }
+        },
+        "required": ["memeIds"]
+      },
+      "MemeTokenBalancesResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "Whether the operation was successful",
+            "example": true
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "memeId": {
+                  "type": "string",
+                  "example": "meme_abc123"
+                },
+                "memeIdHex": {
+                  "type": "string",
+                  "example": "6d656d655f616263313233"
+                },
+                "distribution": {
+                  "type": "object",
+                  "description": "Distribution details (same structure as MemeTokenDistributionResponse)"
+                }
+              }
+            }
+          }
+        },
+        "required": ["success", "data"]
+      },
+      "RecentMintDistributionResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
             "example": true
           },
           "data": {
@@ -769,229 +921,359 @@
               "mint": {
                 "type": "string",
                 "description": "Token mint address",
-                "example": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh"
+                "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
               },
               "totalSupply": {
                 "type": "string",
-                "description": "Total token supply",
-                "example": "1000000000"
+                "example": "1000000000.0"
               },
               "minter": {
-                "type": "string",
+                "type": "object",
                 "nullable": true,
-                "description": "Minter address"
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "example": "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+                  },
+                  "balance": {
+                    "type": "string",
+                    "example": "20000000.0"
+                  },
+                  "percentage": {
+                    "type": "string",
+                    "example": "2.0000%"
+                  }
+                }
               },
               "vault": {
-                "type": "string",
+                "type": "object",
                 "nullable": true,
-                "description": "Vault address"
+                "properties": {
+                  "address": {
+                    "type": "string",
+                    "example": "J3dxNj7nDRRqRRXuEMynDG57DkZK4jYRuv3Garmb1i99"
+                  },
+                  "balance": {
+                    "type": "string",
+                    "example": "980000000.0"
+                  },
+                  "percentage": {
+                    "type": "string",
+                    "example": "98.0000%"
+                  }
+                }
               },
               "summary": {
                 "type": "object",
                 "properties": {
                   "totalDistributed": {
                     "type": "string",
-                    "description": "Total amount distributed"
+                    "example": "1000000000.0"
                   },
                   "isCorrect": {
                     "type": "boolean",
-                    "description": "Whether the distribution is correct"
+                    "example": true
                   },
                   "minterShare": {
                     "type": "string",
-                    "description": "Percentage share held by minter",
-                    "example": "0.0000%"
+                    "example": "2.0000%"
                   },
                   "vaultShare": {
                     "type": "string",
-                    "description": "Percentage share held by vault",
-                    "example": "0.0000%"
+                    "example": "98.0000%"
                   }
                 }
               }
             }
           }
-        }
+        },
+        "required": ["success", "data"]
       },
-      "CreateAMMPoolRequest": {
-        "type": "object",
-        "required": ["initializer", "tokenMint", "initialSolAmount", "initialTokenAmount"],
-        "properties": {
-          "initializer": {
-            "type": "string",
-            "description": "The public key of the pool initializer",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
-          },
-          "tokenMint": {
-            "type": "string",
-            "description": "The token mint address for the pool",
-            "example": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh"
-          },
-          "initialSolAmount": {
-            "type": "number",
-            "description": "Initial SOL amount to deposit (in SOL)",
-            "example": 1.0,
-            "minimum": 0
-          },
-          "initialTokenAmount": {
-            "type": "string",
-            "description": "Initial token amount to deposit (in smallest unit)",
-            "example": "1000000000"
-          }
-        }
-      },
-      "CreateAMMPoolResponse": {
+      "AllMintedTokensResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "Whether the operation was successful",
             "example": true
           },
           "message": {
             "type": "string",
-            "description": "Success message",
-            "example": "Initialize AMM pool transaction created successfully!"
+            "example": "All minted tokens retrieved successfully"
           },
-          "transaction": {
-            "type": "string",
-            "description": "Base64 encoded serialized transaction"
-          },
-          "accounts": {
+          "data": {
             "type": "object",
-            "description": "Account addresses involved in the transaction",
             "properties": {
-              "pool": {
-                "type": "string",
-                "description": "AMM pool account address"
+              "count": {
+                "type": "integer",
+                "description": "Total number of minted tokens",
+                "example": 5
               },
-              "lpMint": {
+              "tokens": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MintedToken"
+                }
+              }
+            },
+            "required": ["count", "tokens"]
+          }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "MintedToken": {
+        "type": "object",
+        "properties": {
+          "memeId": {
+            "type": "string",
+            "description": "Human-readable meme ID",
+            "example": "meme_abc123"
+          },
+          "memeIdHex": {
+            "type": "string",
+            "description": "Hexadecimal representation of meme ID",
+            "example": "6d656d655f616263313233"
+          },
+          "mint": {
+            "type": "string",
+            "description": "Token mint address",
+            "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          "minter": {
+            "type": "string",
+            "description": "Address of the account that minted the token",
+            "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
+          },
+          "createdAt": {
+            "type": "string",
+            "description": "Unix timestamp when the token was created",
+            "example": "1640000000"
+          },
+          "isInitialized": {
+            "type": "boolean",
+            "description": "Whether the token state is initialized",
+            "example": true
+          }
+        },
+        "required": ["memeId", "memeIdHex", "mint", "minter", "createdAt", "isInitialized"]
+      },
+      "CreateAmmPoolRequest": {
+        "type": "object",
+        "properties": {
+          "tokenMint": {
+            "type": "string",
+            "description": "The token mint address to create a pool for",
+            "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          "initialSolAmount": {
+            "type": "number",
+            "description": "Initial SOL amount to deposit (in SOL, not lamports)",
+            "example": 1.5
+          },
+          "initialTokenAmount": {
+            "type": "number",
+            "description": "Initial token amount to deposit",
+            "example": 1000000
+          }
+        },
+        "required": ["tokenMint", "initialSolAmount", "initialTokenAmount"]
+      },
+      "AddLiquidityRequest": {
+        "type": "object",
+        "properties": {
+          "tokenMint": {
+            "type": "string",
+            "description": "The token mint address of the pool",
+            "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+          },
+          "solAmount": {
+            "type": "number",
+            "description": "SOL amount to add (in SOL, not lamports)",
+            "example": 0.5
+          },
+          "maxTokenAmount": {
+            "type": "number",
+            "description": "Maximum token amount willing to deposit",
+            "example": 500000
+          },
+          "minLpAmount": {
+            "type": "number",
+            "description": "Minimum LP tokens to receive (optional, for slippage protection)",
+            "example": 0
+          }
+        },
+        "required": ["tokenMint", "solAmount", "maxTokenAmount"]
+      },
+      "AmmPoolResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "AMM pool created successfully"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "signature": {
                 "type": "string",
-                "description": "Liquidity provider token mint address"
+                "description": "Transaction signature",
+                "example": "5j7s6NiJS3JAkvgkoc18WVAsiSaci2pxB2A6ueCJP4tprA2u89z4cdURZxVfHaKYCCpVVaHUWAKXRXNfnMvxTYCp"
               },
-              "solVault": {
+              "poolPda": {
                 "type": "string",
-                "description": "SOL vault account address"
+                "description": "Pool PDA address",
+                "example": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj"
               },
-              "tokenVault": {
+              "lpMintPda": {
                 "type": "string",
-                "description": "Token vault account address"
+                "description": "LP mint PDA address",
+                "example": "CKfatsPMUf8SkiURsDXs7eK6GWb4Jsd6UDbs7twMCWxo"
               },
-              "userTokenAccount": {
+              "solVaultPda": {
                 "type": "string",
-                "description": "User's token account address"
+                "description": "SOL vault PDA address",
+                "example": "J3dxNj7nDRRqRRXuEMynDG57DkZK4jYRuv3Garmb1i99"
               },
-              "userLpAccount": {
+              "tokenVaultPda": {
                 "type": "string",
-                "description": "User's LP token account address"
+                "description": "Token vault PDA address",
+                "example": "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+              },
+              "lpMinted": {
+                "type": "string",
+                "description": "Amount of LP tokens minted",
+                "example": "1224744"
               }
             }
           }
-        }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "LiquidityResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Liquidity added successfully"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "signature": {
+                "type": "string",
+                "description": "Transaction signature",
+                "example": "5j7s6NiJS3JAkvgkoc18WVAsiSaci2pxB2A6ueCJP4tprA2u89z4cdURZxVfHaKYCCpVVaHUWAKXRXNfnMvxTYCp"
+              },
+              "lpAmount": {
+                "type": "string",
+                "description": "Amount of LP tokens minted or burned",
+                "example": "500000"
+              },
+              "solAmount": {
+                "type": "string",
+                "description": "Amount of SOL deposited or withdrawn",
+                "example": "500000000"
+              },
+              "tokenAmount": {
+                "type": "string",
+                "description": "Amount of tokens deposited or withdrawn",
+                "example": "500000"
+              }
+            }
+          }
+        },
+        "required": ["success", "message", "data"]
+      },
+      "PoolInfoResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "poolPda": {
+                "type": "string",
+                "description": "Pool PDA address",
+                "example": "8sLbNZoA1cfnvMJLPfp98ZLAnFSYCFApfJKMbiXNLwxj"
+              },
+              "tokenMint": {
+                "type": "string",
+                "description": "Token mint address",
+                "example": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+              },
+              "lpMint": {
+                "type": "string",
+                "description": "LP token mint address",
+                "example": "CKfatsPMUf8SkiURsDXs7eK6GWb4Jsd6UDbs7twMCWxo"
+              },
+              "solVault": {
+                "type": "string",
+                "description": "SOL vault address",
+                "example": "J3dxNj7nDRRqRRXuEMynDG57DkZK4jYRuv3Garmb1i99"
+              },
+              "tokenVault": {
+                "type": "string",
+                "description": "Token vault address",
+                "example": "HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH"
+              },
+              "solReserve": {
+                "type": "string",
+                "description": "SOL reserve in lamports",
+                "example": "1500000000"
+              },
+              "tokenReserve": {
+                "type": "string",
+                "description": "Token reserve amount",
+                "example": "1000000"
+              },
+              "lpSupply": {
+                "type": "string",
+                "description": "Total LP token supply",
+                "example": "1224744"
+              },
+              "isInitialized": {
+                "type": "boolean",
+                "description": "Whether the pool is initialized",
+                "example": true
+              }
+            }
+          }
+        },
+        "required": ["success", "data"]
       },
       "ErrorResponse": {
         "type": "object",
         "properties": {
           "success": {
             "type": "boolean",
-            "description": "Whether the operation was successful",
             "example": false
-          },
-          "error": {
-            "type": "string",
-            "description": "Error message describing what went wrong"
-          },
-          "code": {
-            "type": "string",
-            "description": "Error code for programmatic handling",
-            "example": "INVALID_INPUT"
-          }
-        }
-      },
-      "AddLiquidityRequest": {
-        "type": "object",
-        "required": ["user", "tokenMint", "solAmount", "maxTokenAmount", "minLpAmount"],
-        "properties": {
-          "user": {
-            "type": "string",
-            "description": "The public key of the user adding liquidity",
-            "example": "9r9T8TMU3fmF7UAgtadxRSupHVVD2MEjzces2dijDdXY"
-          },
-          "tokenMint": {
-            "type": "string",
-            "description": "The token mint address",
-            "example": "5UA685amMWuHgj3bVDo2pgWw8gs4G4PhrqyHW7ruAQUh"
-          },
-          "solAmount": {
-            "type": "number",
-            "description": "Amount of SOL to add (in SOL)",
-            "example": 0.5,
-            "minimum": 0
-          },
-          "maxTokenAmount": {
-            "type": "string",
-            "description": "Maximum token amount willing to deposit (in smallest unit)",
-            "example": "500000000"
-          },
-          "minLpAmount": {
-            "type": "string",
-            "description": "Minimum LP tokens expected to receive (in smallest unit)",
-            "example": "1000000"
-          }
-        }
-      },
-      "AddLiquidityResponse": {
-        "type": "object",
-        "properties": {
-          "success": {
-            "type": "boolean",
-            "description": "Whether the operation was successful",
-            "example": true
           },
           "message": {
             "type": "string",
-            "description": "Success message",
-            "example": "Add liquidity transaction created successfully!"
+            "example": "An error occurred"
           },
-          "transaction": {
+          "error": {
             "type": "string",
-            "description": "Base64 encoded serialized transaction"
+            "description": "Error message",
+            "example": "Invalid input provided"
           },
-          "accounts": {
-            "type": "object",
-            "description": "Account addresses involved in the transaction",
-            "properties": {
-              "pool": {
-                "type": "string",
-                "description": "AMM pool account address"
-              },
-              "tokenMint": {
-                "type": "string",
-                "description": "Token mint address"
-              },
-              "lpMint": {
-                "type": "string",
-                "description": "Liquidity provider token mint address"
-              },
-              "solVault": {
-                "type": "string",
-                "description": "SOL vault account address"
-              },
-              "tokenVault": {
-                "type": "string",
-                "description": "Token vault account address"
-              },
-              "userTokenAccount": {
-                "type": "string",
-                "description": "User's token account address"
-              },
-              "userLpAccount": {
-                "type": "string",
-                "description": "User's LP token account address"
-              }
-            }
+          "code": {
+            "type": "string",
+            "description": "Error code",
+            "example": "INVALID_INPUT"
           }
-        }
+        },
+        "required": ["success"]
       }
     }
   }
