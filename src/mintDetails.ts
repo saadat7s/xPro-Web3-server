@@ -210,6 +210,43 @@ export async function getRecentMintDistribution(memeIdString: string) {
 }
 
 
+// === Get minted tokens by a specific user ===
+export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<Array<{
+  memeId: string;
+  memeIdHex: string;
+  mint: string;
+  minter: string;
+  createdAt: string;
+  isInitialized: boolean;
+}>> {
+  const { program } = getProgram();
+
+  try {
+    const memeTokenStates = await program.account.memeTokenState.all();
+    
+    // Filter tokens minted by the specified user
+    return memeTokenStates
+      .filter((state) => {
+        const account = state.account as any;
+        return account.minter.equals(userPublicKey);
+      })
+      .map((state) => {
+        const account = state.account as any;
+        return {
+          memeId: memeIdToString(account.memeId),
+          memeIdHex: account.memeId.toString('hex'),
+          mint: account.mint.toBase58(),
+          minter: account.minter.toBase58(),
+          createdAt: account.createdAt.toString(),
+          isInitialized: account.isInitialized === 1,
+        };
+      });
+  } catch (error) {
+    console.error("Error fetching minted tokens by user:", error);
+    return [];
+  }
+}
+
 // === Get all minted tokens (from all users) ===
 export async function getAllMintedTokens(): Promise<Array<{
   memeId: string;
