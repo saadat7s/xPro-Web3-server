@@ -1,7 +1,7 @@
 {
-  "name": "zsnipe-server",
+  "name": "xpro-web3-server",
   "version": "1.0.0",
-  "description": "ZeroSnipe DAO Server - Professional backend for Solana DAO platform",
+  "description": "XPro Web3 Server - Professional backend for Solana XPro Web3 platform",
   "main": "dist/server.js",
   "scripts": {
     "dev": "nodemon src/server.ts",
@@ -14,10 +14,16 @@
   },
   "keywords": [
     "solana",
-    "dao",
+    "xpro",
     "staking",
     "governance",
     "defi",
+    "meme",
+    "wall",
+    "token",
+    "amm",
+    "liquidity",
+    "pool",
     "api"
   ],
   "author": "Saadat Ullah",
