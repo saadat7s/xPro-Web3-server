@@ -7,6 +7,7 @@ import {
   getRecentMintDistribution,
   formatTokenAmount,
   getAllMintedTokens,
+  getMintedTokensByUser,
 } from "../mintDetails";
 import { stringToMemeId } from "../helpers";
 
@@ -103,6 +104,36 @@ export async function getAllMintedTokensController(req: Request, res: Response) 
     });
   } catch (error: any) {
     console.error('/all-minted-tokens error:', error);
+    return res.status(500).json({ success: false, message: error?.message || String(error) });
+  }
+}
+
+export async function getUserMintedTokensController(req: Request, res: Response) {
+  try {
+    const { userPublicKey } = req.params as { userPublicKey: string };
+    if (!userPublicKey) {
+      return res.status(400).json({ success: false, message: "userPublicKey is required" });
+    }
+
+    let publicKey: PublicKey;
+    try {
+      publicKey = new PublicKey(userPublicKey);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: "Invalid user public key address" });
+    }
+
+    const tokens = await getMintedTokensByUser(publicKey);
+    
+    return res.json({
+      success: true,
+      message: "User minted tokens retrieved successfully",
+      data: {
+        count: tokens.length,
+        tokens: tokens
+      }
+    });
+  } catch (error: any) {
+    console.error('/user-minted-tokens error:', error);
     return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }
