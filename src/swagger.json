@@ -495,6 +495,58 @@
         }
       }
     },
+    "/meme/user-minted-tokens/{userPublicKey}": {
+      "get": {
+        "tags": ["Mint Details"],
+        "summary": "Get minted tokens by user",
+        "description": "Retrieves a list of all meme tokens minted by a specific user",
+        "operationId": "getUserMintedTokens",
+        "parameters": [
+          {
+            "name": "userPublicKey",
+            "in": "path",
+            "required": true,
+            "description": "The public key of the user",
+            "schema": {
+              "type": "string",
+              "example": "5ZWj7a1f8tWkjBESHKgrLmXshuXxqeY9SYcfbshpAqPG"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "User minted tokens retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserMintedTokensResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid user public key",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/amm/create-amm-pool": {
       "post": {
         "tags": ["AMM Pool"],
@@ -1055,6 +1107,37 @@
           }
         },
         "required": ["memeId", "memeIdHex", "mint", "minter", "createdAt", "isInitialized"]
+      },
+      "UserMintedTokensResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "User minted tokens retrieved successfully"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "count": {
+                "type": "integer",
+                "description": "Total number of minted tokens by the user",
+                "example": 3
+              },
+              "tokens": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/MintedToken"
+                }
+              }
+            },
+            "required": ["count", "tokens"]
+          }
+        },
+        "required": ["success", "message", "data"]
       },
       "CreateAmmPoolRequest": {
         "type": "object",
