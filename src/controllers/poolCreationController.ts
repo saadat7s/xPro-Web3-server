@@ -8,6 +8,7 @@ import {
   // createSwapTokensForSolTransaction,
 } from "../services/poolCreationService";
 import { getPoolInfo } from "../ammService";
+import { getAmmPool } from "../mintDetails";
 
 export async function initializeAmmPoolTxController(req: Request, res: Response) {
   try {
@@ -93,6 +94,50 @@ export async function getPoolInfoController(req: Request, res: Response) {
     return res.status(500).json({
       success: false,
       error: error?.message || 'Failed to fetch pool info',
+    });
+  }
+}
+
+export async function getAmmPoolController(req: Request, res: Response) {
+  try {
+    const { tokenMint } = req.params as { tokenMint: string };
+    
+    if (!tokenMint) {
+      return res.status(400).json({
+        success: false,
+        error: 'tokenMint is required',
+      });
+    }
+
+    const ammPool = await getAmmPool(new PublicKey(tokenMint));
+    
+    if (!ammPool) {
+      return res.status(404).json({
+        success: false,
+        error: 'AMM Pool not found',
+      });
+    }
+
+    // Format the response to convert PublicKey objects to base58 strings and BN to strings
+    return res.json({
+      success: true,
+      data: {
+        tokenMint: ammPool.tokenMint.toBase58(),
+        lpMint: ammPool.lpMint.toBase58(),
+        solVault: ammPool.solVault.toBase58(),
+        tokenVault: ammPool.tokenVault.toBase58(),
+        solReserve: ammPool.solReserve.toString(),
+        tokenReserve: ammPool.tokenReserve.toString(),
+        lpSupply: ammPool.lpSupply.toString(),
+        bump: ammPool.bump,
+        isInitialized: ammPool.isInitialized,
+      },
+    });
+  } catch (error: any) {
+    console.error('/amm-pool error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to fetch AMM pool',
     });
   }
 }
