@@ -6,7 +6,8 @@ import { getVaultPda } from "./service";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { memeIdToString } from "./helpers";
 import { stringToMemeId } from "./helpers";
-import { getMemeTokenStatePda } from "./helpers";
+import { getMemeTokenStatePda } from "./helpers"; 
+import { BN } from "@coral-xyz/anchor";
 
 // === Get Token Balance for any token account ===
 export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
@@ -276,4 +277,88 @@ export async function getAllMintedTokens(): Promise<Array<{
     console.error("Error fetching all minted tokens:", error);
     return [];
   }
+}
+
+
+export interface AmmPool {
+  tokenMint: PublicKey;
+  lpMint: PublicKey;
+  solVault: PublicKey;
+  tokenVault: PublicKey;
+  solReserve: BN;      // Keep as BN from Anchor
+  tokenReserve: BN;    // Keep as BN from Anchor
+  lpSupply: BN;        // Keep as BN from Anchor
+  bump: number;
+  isInitialized: boolean;
+}
+
+// If you need a serializable version for API responses
+export interface AmmPoolResponse {
+  tokenMint: string;
+  lpMint: string;
+  solVault: string;
+  tokenVault: string;
+  solReserve: string;
+  tokenReserve: string;
+  lpSupply: string;
+  bump: number;
+  isInitialized: boolean;
+}
+
+export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> {
+  const { program } = getProgram();
+  
+  try {
+    // Derive the PDA for the AmmPool account
+    const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
+
+    // Fetch the account - Anchor will handle decoding based on your IDL
+    const poolAccount = await program.account.ammPool.fetch(poolPda) as unknown as AmmPool;
+    
+    if (!poolAccount) {
+      return null;
+    }
+
+    // Anchor returns the account with proper types from your IDL
+    return {
+      tokenMint: poolAccount.tokenMint,
+      lpMint: poolAccount.lpMint,
+      solVault: poolAccount.solVault,
+      tokenVault: poolAccount.tokenVault,
+      solReserve: poolAccount.solReserve,
+      tokenReserve: poolAccount.tokenReserve,
+      lpSupply: poolAccount.lpSupply,
+      bump: poolAccount.bump,
+      isInitialized: poolAccount.isInitialized,
+    };
+  } catch (error) {
+    console.error("Error fetching AmmPool:", error);
+    return null;
+  }
+}
+
+// Helper function to convert to serializable format for API responses
+export function ammPoolToResponse(pool: AmmPool): AmmPoolResponse {
+  return {
+    tokenMint: pool.tokenMint.toBase58(),
+    lpMint: pool.lpMint.toBase58(),
+    solVault: pool.solVault.toBase58(),
+    tokenVault: pool.tokenVault.toBase58(),
+    solReserve: pool.solReserve.toString(),
+    tokenReserve: pool.tokenReserve.toString(),
+    lpSupply: pool.lpSupply.toString(),
+    bump: pool.bump,
+    isInitialized: pool.isInitialized,
+  };
+}
+
+// Your PDA derivation function should look like this:
+export function getAmmPoolPda(
+  tokenMint: PublicKey,
+  programId: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from("amm_pool"), tokenMint.toBuffer()],
+    programId
+  );
 }
