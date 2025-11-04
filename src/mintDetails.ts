@@ -6,7 +6,7 @@ import { getVaultPda } from "./service";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { memeIdToString } from "./helpers";
 import { stringToMemeId } from "./helpers";
-import { getMemeTokenStatePda } from "./helpers"; 
+import { getMemeTokenStatePda } from "./helpers";
 import { BN } from "@coral-xyz/anchor";
 
 // === Get Token Balance for any token account ===
@@ -17,7 +17,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
   mint: PublicKey;
 } | null> {
   const { connection } = getProgram();
-  
+
   try {
     const tokenAccount = await getAccount(
       connection,
@@ -25,7 +25,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
       undefined,
       TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
-    
+
     return {
       balance: tokenAccount.amount.toString(),
       balanceNumber: Number(tokenAccount.amount),
@@ -33,8 +33,8 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
       mint: tokenAccount.mint,
     };
   } catch (error) {
-    if (error instanceof TokenAccountNotFoundError || 
-        error instanceof TokenInvalidAccountOwnerError) {
+    if (error instanceof TokenAccountNotFoundError ||
+      error instanceof TokenInvalidAccountOwnerError) {
       console.log(`Token account ${tokenAccountAddress.toBase58()} not found or invalid`);
       return null;
     }
@@ -74,16 +74,16 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
       [Buffer.from("meme_mint"), memeId],
       program.programId
     );
-    
+
     const [vault] = getVaultPda(mintPDA, program.programId);
-    
+
     const minterTokenAccount = getAssociatedTokenAddressSync(
       mintPDA,
       adminKeypair.publicKey,
       false,
       TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
     );
-    
+
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       mintPDA,
       vault,
@@ -96,7 +96,7 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
     const vaultBalance = await getTokenBalance(vaultTokenAccount);
 
     const TOTAL_SUPPLY = 1_000_000_000_000_000_000; // From Rust code
-    
+
     let distributionSummary = {
       totalDistributed: 0,
       minterShare: 0,
@@ -108,14 +108,14 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
       const minterNum = minterBalance.balanceNumber;
       const vaultNum = vaultBalance.balanceNumber;
       const total = minterNum + vaultNum;
-      
+
       distributionSummary = {
         totalDistributed: total,
         minterShare: (minterNum / total) * 100,
         vaultShare: (vaultNum / total) * 100,
-        isCorrectDistribution: total === TOTAL_SUPPLY && 
-                             Math.abs((minterNum / total) * 100 - 2) < 0.001 &&
-                             Math.abs((vaultNum / total) * 100 - 98) < 0.001,
+        isCorrectDistribution: total === TOTAL_SUPPLY &&
+          Math.abs((minterNum / total) * 100 - 2) < 0.001 &&
+          Math.abs((vaultNum / total) * 100 - 98) < 0.001,
       };
     }
 
@@ -149,17 +149,17 @@ export async function getAllMemeTokenBalances(memeIds: Buffer[]): Promise<Array<
   distribution: any;
 }>> {
   const results = [];
-  
+
   for (const memeId of memeIds) {
     const distribution = await getMemeTokenDistribution(memeId);
-    
+
     results.push({
       memeId: memeIdToString(memeId),
       memeIdHex: memeId.toString('hex'),
       distribution,
     });
   }
-  
+
   return results;
 }
 
@@ -169,7 +169,7 @@ export function formatTokenAmount(amount: string, decimals: number = 9): string 
   const divisor = BigInt(10 ** decimals);
   const wholePart = num / divisor;
   const fractionalPart = num % divisor;
-  
+
   if (fractionalPart === 0n) {
     return wholePart.toString();
   } else {
@@ -183,7 +183,7 @@ export function formatTokenAmount(amount: string, decimals: number = 9): string 
 export async function getRecentMintDistribution(memeIdString: string) {
   const memeIdBuffer = stringToMemeId(memeIdString);
   const distribution = await getMemeTokenDistribution(memeIdBuffer);
-  
+
   if (!distribution) {
     return null;
   }
@@ -224,7 +224,7 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
 
   try {
     const memeTokenStates = await program.account.memeTokenState.all();
-    
+
     // Filter tokens minted by the specified user
     return memeTokenStates
       .filter((state) => {
@@ -261,18 +261,30 @@ export async function getAllMintedTokens(): Promise<Array<{
 
   try {
     const memeTokenStates = await program.account.memeTokenState.all();
-    
-    return memeTokenStates.map((state) => {
-      const account = state.account as any;
-      return {
+    let allTokens = [];
+
+    for (const state of memeTokenStates) {
+      let account = state.account as any;
+
+      const poolDetails = await getAmmPool(account.mint);
+
+      let token = {
         memeId: memeIdToString(account.memeId),
         memeIdHex: account.memeId.toString('hex'),
         mint: account.mint.toBase58(),
         minter: account.minter.toBase58(),
         createdAt: account.createdAt.toString(),
-        isInitialized: account.isInitialized === 1,
-      };
-    });
+        isInitialized: account.isInitialized,
+        poolDetails: {
+          isInitialized: poolDetails?.isInitialized,
+          lpSupply: parseInt(poolDetails?.lpSupply, 16).toString()
+        }
+      }
+
+      allTokens.push(token);
+    }
+
+    return allTokens;
   } catch (error) {
     console.error("Error fetching all minted tokens:", error);
     return [];
@@ -307,14 +319,14 @@ export interface AmmPoolResponse {
 
 export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> {
   const { program } = getProgram();
-  
+
   try {
     // Derive the PDA for the AmmPool account
     const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
 
     // Fetch the account - Anchor will handle decoding based on your IDL
     const poolAccount = await program.account.ammPool.fetch(poolPda) as unknown as AmmPool;
-    
+
     if (!poolAccount) {
       return null;
     }
