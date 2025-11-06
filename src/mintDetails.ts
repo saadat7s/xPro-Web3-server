@@ -277,7 +277,10 @@ export async function getAllMintedTokens(): Promise<Array<{
         isInitialized: account.isInitialized,
         poolDetails: {
           isInitialized: poolDetails?.isInitialized,
-          lpSupply: poolDetails?.lpSupply?.toString()
+          lpSupply: poolDetails?.lpSupply?.toString(),
+          solReserve: poolDetails?.solReserve?.toString(),
+          tokenReserve: poolDetails?.tokenReserve?.toString(),
+          
         }
       }
 
