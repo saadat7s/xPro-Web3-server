@@ -330,6 +330,12 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
     if (!poolAccount) {
       return null;
     }
+    const tokenDecimals = 9;
+    const lpDecimals = 9;
+
+    const solReserve = formatTokenAmount(poolAccount.solReserve.toString(), 9);
+    const tokenReserve = formatTokenAmount(poolAccount.tokenReserve.toString(), tokenDecimals);
+    const lpSupply = formatTokenAmount(poolAccount.lpSupply.toString(), lpDecimals);
 
     // Anchor returns the account with proper types from your IDL
     return {
@@ -337,9 +343,9 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
       lpMint: poolAccount.lpMint,
       solVault: poolAccount.solVault,
       tokenVault: poolAccount.tokenVault,
-      solReserve: poolAccount.solReserve,
-      tokenReserve: poolAccount.tokenReserve,
-      lpSupply: poolAccount.lpSupply,
+      solReserve: solReserve,
+      tokenReserve: tokenReserve,
+      lpSupply: lpSupply,
       bump: poolAccount.bump,
       isInitialized: poolAccount.isInitialized,
     };
