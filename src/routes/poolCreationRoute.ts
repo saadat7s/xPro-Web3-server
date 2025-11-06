@@ -4,6 +4,8 @@ import {
   addLiquidityTxController,
   getPoolInfoController,
   getAmmPoolController,
+  getAddLiquidityParamsController,
+  calculateAddLiquidityController,
   // removeLiquidityTxController,
   // swapSolForTokensTxController,
   // swapTokensForSolTxController,
@@ -21,6 +23,9 @@ router.post("/tx/add-liquidity", addLiquidityTxController);
 // Pool information endpoints
 router.get("/pool-info/:tokenMint", getPoolInfoController);
 router.get("/amm-pool/:tokenMint", getAmmPoolController);
+
+router.get("/calculate-add-liquidity", calculateAddLiquidityController);
+router.get("/add-liquidity-params", getAddLiquidityParamsController);
 
 export default router;
 
