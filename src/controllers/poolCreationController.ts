@@ -8,7 +8,7 @@ import {
   // createSwapTokensForSolTransaction,
 } from "../services/poolCreationService";
 import { getPoolInfo } from "../ammService";
-import { getAmmPool } from "../mintDetails";
+import { calculateAddLiquidity, getAddLiquidityParams, getAmmPool } from "../mintDetails";
 
 export async function initializeAmmPoolTxController(req: Request, res: Response) {
   try {
@@ -228,3 +228,98 @@ export async function getAmmPoolController(req: Request, res: Response) {
 
 
 
+
+/**
+ * Full calculation endpoint - gives user complete transparency
+ * GET /amm/calculate-add-liquidity?tokenMint=xxx&solAmount=0.01&slippage=1
+ */
+export async function calculateAddLiquidityController(req: Request, res: Response) {
+  try {
+    const { tokenMint, solAmount, slippage, userCurrentLp } = req.query as {
+      tokenMint: string;
+      solAmount: string;
+      slippage?: string;
+      userCurrentLp?: string;
+    };
+
+    if (!tokenMint || !solAmount) {
+      return res.status(400).json({
+        success: false,
+        message: "tokenMint and solAmount are required",
+      });
+    }
+
+    const solAmountNum = parseFloat(solAmount);
+    const slippageNum = slippage ? parseFloat(slippage) : 1;
+    const userLpNum = userCurrentLp ? parseFloat(userCurrentLp) : 0;
+
+    const calculation = await calculateAddLiquidity(
+      tokenMint,
+      solAmountNum,
+      slippageNum,
+      userLpNum
+    );
+
+    if (!calculation) {
+      return res.status(404).json({
+        success: false,
+        message: "Pool not found or not initialized",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: calculation,
+    });
+  } catch (error: any) {
+    console.error("/calculate-add-liquidity error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to calculate add liquidity",
+    });
+  }
+}
+
+/**
+ * Quick params endpoint - just returns the values needed for transaction
+ * GET /amm/add-liquidity-params?tokenMint=xxx&solAmount=0.01&slippage=1
+ */
+export async function getAddLiquidityParamsController(req: Request, res: Response) {
+  try {
+    const { tokenMint, solAmount, slippage } = req.query as {
+      tokenMint: string;
+      solAmount: string;
+      slippage?: string;
+    };
+
+    if (!tokenMint || !solAmount) {
+      return res.status(400).json({
+        success: false,
+        message: "tokenMint and solAmount are required",
+      });
+    }
+
+    const solAmountNum = parseFloat(solAmount);
+    const slippageNum = slippage ? parseFloat(slippage) : 1;
+
+    const params = await getAddLiquidityParams(tokenMint, solAmountNum, slippageNum);
+
+    if (!params) {
+      return res.status(404).json({
+        success: false,
+        message: "Pool not found or not initialized",
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: params,
+    });
+  } catch (error: any) {
+    console.error("/add-liquidity-params error:", error);
+    return res.status(500).json({
+      success: false,
+      message: error?.message || "Failed to get add liquidity params",
+    });
+  }
+}
