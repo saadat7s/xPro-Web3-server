@@ -54,13 +54,18 @@ export async function createInitializeAmmPoolTransaction(
     TOKEN_2022_PROGRAM_ID,
   );
 
+  const DECIMALS = 9;
+  const initialTokenBaseUnits = Math.floor(
+    Number(initialTokenAmount) * Math.pow(10, DECIMALS)
+  );
+
   try {
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
     const transaction = await program.methods
       .initializeAmmPool(
         new anchor.BN(initialSolLamports),
-        new anchor.BN(initialTokenAmount.toString()),
+        new anchor.BN(initialTokenBaseUnits),
       )
       .accounts({
         initializer: initializerPublicKey,
@@ -104,7 +109,6 @@ export async function createInitializeAmmPoolTransaction(
   }
 }
 
-// === Add Liquidity (unsigned) ===
 export async function createAddLiquidityTransaction(
   userPublicKey: PublicKey,
   tokenMintAddress: string,
@@ -135,14 +139,24 @@ export async function createAddLiquidityTransaction(
     TOKEN_2022_PROGRAM_ID,
   );
 
+  const DECIMALS = 9;
+  const maxTokenBaseUnits = Math.floor(
+    Number(maxTokenAmount) * Math.pow(10, DECIMALS)
+  );
+  
+  // 🔥 ADD THIS: Convert minLpAmount to base units too
+  const minLpBaseUnits = Math.floor(
+    Number(minLpAmount) * Math.pow(10, DECIMALS)
+  );
+
   try {
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
     const transaction = await program.methods
       .addLiquidityToPool(
         new anchor.BN(solLamports),
-        new anchor.BN(maxTokenAmount.toString()),
-        new anchor.BN(minLpAmount.toString()),
+        new anchor.BN(maxTokenBaseUnits),
+        new anchor.BN(minLpBaseUnits),  // ✅ Use converted value
       )
       .accounts({
         user: userPublicKey,
