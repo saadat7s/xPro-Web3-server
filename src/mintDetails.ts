@@ -277,7 +277,7 @@ export async function getAllMintedTokens(): Promise<Array<{
         isInitialized: account.isInitialized,
         poolDetails: {
           isInitialized: poolDetails?.isInitialized,
-          lpSupply: parseInt(poolDetails?.lpSupply, 16).toString()
+          lpSupply: poolDetails?.lpSupply?.toString()
         }
       }
 
@@ -373,4 +373,148 @@ export function getAmmPoolPda(
     [Buffer.from("amm_pool"), tokenMint.toBuffer()],
     programId
   );
+}
+interface AddLiquidityCalculation {
+  poolState: {
+    solReserve: string;           // Human-readable (e.g., "0.05")
+    tokenReserve: string;         // Human-readable (e.g., "100")
+    lpSupply: string;             // Human-readable (e.g., "2.236")
+    currentPrice: string;         // How many tokens per 1 SOL
+    isInitialized: boolean;
+  };
+  userInput: {
+    solAmount: number;            // What user wants to add
+    slippagePercent: number;      // Slippage tolerance
+  };
+  calculations: {
+    requiredTokens: number;       // Exact tokens needed
+    maxTokenAmount: number;       // With slippage buffer
+    expectedLp: number;           // LP tokens to receive
+    minLpAmount: number;          // With slippage buffer
+  };
+  priceImpact: {
+    newSolReserve: string;
+    newTokenReserve: string;
+    newPrice: string;
+    priceChange: string;          // Percentage change
+  };
+  userShare: {
+    currentOwnership: string;     // "0%" if new user
+    newOwnership: string;         // After adding liquidity
+  };
+}
+
+/**
+ * Calculate all parameters needed for adding liquidity
+ * This gives users complete transparency about what will happen
+ */
+export async function calculateAddLiquidity(
+  tokenMint: string,
+  solAmount: number,
+  slippagePercent: number = 1,
+  userCurrentLp: number = 0  // Optional: if user already has LP tokens
+): Promise<AddLiquidityCalculation | null> {
+  try {
+    const tokenMintPk = new PublicKey(tokenMint);
+    const pool = await getAmmPool(tokenMintPk);
+
+    if (!pool || !pool.isInitialized) {
+      console.error("Pool not found or not initialized");
+      return null;
+    }
+
+    const DECIMALS = 9;
+
+    // Convert from base units to human-readable
+    const solReserve = Number(pool.solReserve.toString()) / 1e9;
+    const tokenReserve = Number(pool.tokenReserve.toString()) / Math.pow(10, DECIMALS);
+    const lpSupply = Number(pool.lpSupply.toString()) / Math.pow(10, DECIMALS);
+
+    // Calculate current price
+    const currentPrice = tokenReserve / solReserve;
+
+    // Calculate exact tokens needed to maintain ratio
+    const requiredTokens = (solAmount * tokenReserve) / solReserve;
+
+    // Add slippage buffer for max tokens (user willing to give up to this much)
+    const maxTokenAmount = requiredTokens * (1 + slippagePercent / 100);
+
+    // Calculate expected LP tokens
+    const lpFromSol = (solAmount * lpSupply) / solReserve;
+    const lpFromToken = (requiredTokens * lpSupply) / tokenReserve;
+    const expectedLp = Math.min(lpFromSol, lpFromToken);
+
+    // Subtract slippage buffer for min LP (user wants at least this much)
+    const minLpAmount = expectedLp * (1 - slippagePercent / 100);
+
+    // Calculate new pool state after adding liquidity
+    const newSolReserve = solReserve + solAmount;
+    const newTokenReserve = tokenReserve + requiredTokens;
+    const newPrice = newTokenReserve / newSolReserve;
+    const priceChange = ((newPrice - currentPrice) / currentPrice) * 100;
+
+    // Calculate ownership percentages
+    const newLpSupply = lpSupply + expectedLp;
+    const currentOwnership = lpSupply > 0 ? (userCurrentLp / lpSupply) * 100 : 0;
+    const newUserLp = userCurrentLp + expectedLp;
+    const newOwnership = (newUserLp / newLpSupply) * 100;
+
+    return {
+      poolState: {
+        solReserve: solReserve.toFixed(6),
+        tokenReserve: tokenReserve.toFixed(6),
+        lpSupply: lpSupply.toFixed(6),
+        currentPrice: currentPrice.toFixed(6),
+        isInitialized: pool.isInitialized,
+      },
+      userInput: {
+        solAmount,
+        slippagePercent,
+      },
+      calculations: {
+        requiredTokens: parseFloat(requiredTokens.toFixed(6)),
+        maxTokenAmount: parseFloat(maxTokenAmount.toFixed(6)),
+        expectedLp: parseFloat(expectedLp.toFixed(6)),
+        minLpAmount: parseFloat(minLpAmount.toFixed(6)),
+      },
+      priceImpact: {
+        newSolReserve: newSolReserve.toFixed(6),
+        newTokenReserve: newTokenReserve.toFixed(6),
+        newPrice: newPrice.toFixed(6),
+        priceChange: priceChange.toFixed(4),
+      },
+      userShare: {
+        currentOwnership: currentOwnership.toFixed(2) + "%",
+        newOwnership: newOwnership.toFixed(2) + "%",
+      },
+    };
+  } catch (error) {
+    console.error("Error calculating add liquidity:", error);
+    return null;
+  }
+}
+
+/**
+ * Simpler version - just returns the parameters needed for the transaction
+ */
+export async function getAddLiquidityParams(
+  tokenMint: string,
+  solAmount: number,
+  slippagePercent: number = 1
+): Promise<{
+  maxTokenAmount: number;
+  minLpAmount: number;
+  requiredTokens: number;
+  expectedLp: number;
+} | null> {
+  const calculation = await calculateAddLiquidity(tokenMint, solAmount, slippagePercent);
+  
+  if (!calculation) return null;
+
+  return {
+    maxTokenAmount: calculation.calculations.maxTokenAmount,
+    minLpAmount: calculation.calculations.minLpAmount,
+    requiredTokens: calculation.calculations.requiredTokens,
+    expectedLp: calculation.calculations.expectedLp,
+  };
 }
