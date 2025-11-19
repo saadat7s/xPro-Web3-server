@@ -15,7 +15,7 @@ export const getProgram = () => {
   console.log("🔧 [getProgram] Connected to Solana devnet");
 
   const programId = new PublicKey(
-    "23YiQzmDxCYcX8Vu9Fkbov2NoFfUJCjNhKTH2GFfRDyM"
+    "3LrvyGuyhsgPWrbQqZcKzSQeMAxCoZgTCmYxmT2FWfAJ"
   );
   console.log("🔧 [getProgram] Program ID:", programId.toBase58());
 
