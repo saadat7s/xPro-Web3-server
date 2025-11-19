@@ -3,15 +3,41 @@ use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::Token2022;
 use anchor_spl::token_interface::{
-    self as token, Burn, Mint, MintTo, TokenAccount, TransferChecked,
+    self as token, Mint, MintTo, TokenAccount, TransferChecked,
 };
 
-declare_id!("23YiQzmDxCYcX8Vu9Fkbov2NoFfUJCjNhKTH2GFfRDyM");
+declare_id!("3LrvyGuyhsgPWrbQqZcKzSQeMAxCoZgTCmYxmT2FWfAJ");
 
-// ==================== AMM CONSTANTS ====================
+// ==================== BONDING CURVE MEME LAUNCHPAD ====================
+//
+// This contract implements a pump.fun-style bonding curve for meme tokens:
+//
+// 1. MINT TOKEN (0.01 SOL):
+//    - Creates SPL Token-2022 with 1B supply (9 decimals)
+//    - 0.1% (1M tokens) → Creator wallet
+//    - 99.9% (999M tokens) → Protocol vault
+//
+// 2. INITIALIZE POOL:
+//    - Transfers tokens from vault to pool
+//    - User provides SOL to set initial price
+//    - Creates constant product bonding curve (x * y = k)
+//
+// 3. BUY/SELL:
+//    - Users trade directly with pool (no LP tokens)
+//    - 0.3% fee on each trade
+//    - Price adjusts automatically via AMM formula
+//
+// NO LP TOKENS: This is a bonding curve, not traditional liquidity provision
+//
+// ===========================================================================
 
+// ==================== CONSTANTS ====================
+
+// Mint fee: 0.01 SOL (10,000,000 lamports)
+pub const MINT_FEE_LAMPORTS: u64 = 10_000_000;
+
+// AMM Constants
 pub const AMM_POOL_SEED: &[u8] = b"amm_pool";
-pub const LP_MINT_SEED: &[u8] = b"lp_mint";
 pub const POOL_SOL_VAULT_SEED: &[u8] = b"pool_sol_vault";
 pub const POOL_TOKEN_VAULT_SEED: &[u8] = b"pool_token_vault";
 pub const FEE_NUMERATOR: u64 = 3;
@@ -25,27 +51,18 @@ pub mod meme_launchpad {
 
     // ==================== PROTOCOL MANAGEMENT ====================
 
-    pub fn initialize_protocol_state(
-        ctx: Context<InitializeProtocolState>,
-        fee_lamports: u64,
-    ) -> Result<()> {
+    pub fn initialize_protocol_state(ctx: Context<InitializeProtocolState>) -> Result<()> {
         let state = &mut ctx.accounts.protocol_state;
         state.authority = ctx.accounts.authority.key();
-        state.fee_lamports = fee_lamports;
+        state.fee_lamports = MINT_FEE_LAMPORTS; // Fixed at 0.01 SOL
         state.bump = ctx.bumps.protocol_state;
 
         emit!(ProtocolInitialized {
             authority: ctx.accounts.authority.key(),
             fee_vault: ctx.accounts.fee_vault.key(),
-            fee_lamports,
+            fee_lamports: MINT_FEE_LAMPORTS,
         });
 
-        Ok(())
-    }
-
-    pub fn reset_protocol_state(ctx: Context<ResetProtocolState>) -> Result<()> {
-        let state = &mut ctx.accounts.protocol_state;
-        state.fee_lamports = 0;
         Ok(())
     }
 
@@ -93,12 +110,9 @@ pub mod meme_launchpad {
         require!(initial_sol_amount > 0, AmmError::InvalidAmount);
         require!(initial_token_amount > 0, AmmError::InvalidAmount);
 
-        let pool_account_info = ctx.accounts.pool.to_account_info();
         let token_mint_key = ctx.accounts.token_mint.key();
 
         // Derive PDAs
-        let (lp_mint_pda, _) =
-            Pubkey::find_program_address(&[LP_MINT_SEED, token_mint_key.as_ref()], ctx.program_id);
         let (sol_vault_pda, _) = Pubkey::find_program_address(
             &[POOL_SOL_VAULT_SEED, token_mint_key.as_ref()],
             ctx.program_id,
@@ -111,12 +125,10 @@ pub mod meme_launchpad {
         // Initialize pool state
         let pool = &mut ctx.accounts.pool;
         pool.token_mint = token_mint_key;
-        pool.lp_mint = lp_mint_pda;
         pool.sol_vault = sol_vault_pda;
         pool.token_vault = token_vault_pda;
         pool.sol_reserve = initial_sol_amount;
         pool.token_reserve = initial_token_amount;
-        pool.lp_supply = 0;
         pool.bump = ctx.bumps.pool;
         pool.is_initialized = true;
 
@@ -165,236 +177,11 @@ pub mod meme_launchpad {
             initial_sol_amount,
         )?;
 
-        // Calculate and mint LP tokens
-        let lp_amount = (initial_sol_amount as f64 * initial_token_amount as f64).sqrt() as u64;
-        let pool_bump = ctx.bumps.pool;
-        let pool_key = pool.key();
-        pool.lp_supply = lp_amount;
-
-        let seeds = &[AMM_POOL_SEED, token_mint_key.as_ref(), &[pool_bump]];
-        token::mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                MintTo {
-                    mint: ctx.accounts.lp_mint.to_account_info(),
-                    to: ctx.accounts.initializer_lp_account.to_account_info(),
-                    authority: pool_account_info,
-                },
-                &[&seeds[..]],
-            ),
-            lp_amount,
-        )?;
-
         emit!(PoolInitialized {
-            pool: pool_key,
+            pool: pool.key(),
             token_mint: token_mint_key,
-            lp_mint: lp_mint_pda,
             initial_sol: initial_sol_amount,
             initial_tokens: initial_token_amount,
-            lp_minted: lp_amount,
-        });
-
-        Ok(())
-    }
-
-    pub fn add_liquidity_to_pool(
-        ctx: Context<AddLiquidity>,
-        sol_amount: u64,
-        max_token_amount: u64,
-        min_lp_amount: u64,
-    ) -> Result<()> {
-        let pool_account_info = ctx.accounts.pool.to_account_info();
-        let pool = &mut ctx.accounts.pool;
-
-        require!(sol_amount > 0, AmmError::InvalidAmount);
-        require!(pool.is_initialized, AmmError::PoolNotInitialized);
-
-        // Calculate proportional token amount
-        let token_amount = (sol_amount as u128)
-            .checked_mul(pool.token_reserve as u128)
-            .unwrap()
-            .checked_div(pool.sol_reserve as u128)
-            .unwrap() as u64;
-
-        require!(token_amount <= max_token_amount, AmmError::SlippageExceeded);
-
-        // Calculate LP tokens
-        let lp_from_sol = (sol_amount as u128)
-            .checked_mul(pool.lp_supply as u128)
-            .unwrap()
-            .checked_div(pool.sol_reserve as u128)
-            .unwrap() as u64;
-        let lp_from_token = (token_amount as u128)
-            .checked_mul(pool.lp_supply as u128)
-            .unwrap()
-            .checked_div(pool.token_reserve as u128)
-            .unwrap() as u64;
-        let lp_amount = std::cmp::min(lp_from_sol, lp_from_token);
-
-        require!(lp_amount >= min_lp_amount, AmmError::SlippageExceeded);
-
-        msg!(
-            "Adding liquidity: {} SOL, {} tokens, {} LP",
-            sol_amount,
-            token_amount,
-            lp_amount
-        );
-
-        // Transfer SOL
-        anchor_lang::system_program::transfer(
-            CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                anchor_lang::system_program::Transfer {
-                    from: ctx.accounts.user.to_account_info(),
-                    to: ctx.accounts.sol_vault.to_account_info(),
-                },
-            ),
-            sol_amount,
-        )?;
-
-        // Transfer tokens
-        token::transfer_checked(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.user_token_account.to_account_info(),
-                    to: ctx.accounts.token_vault.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
-                },
-            ),
-            token_amount,
-            9,
-        )?;
-
-        // Mint LP tokens
-        let token_mint_key = pool.token_mint;
-        let pool_bump = pool.bump;
-        let pool_key = pool.key();
-        let user_key = ctx.accounts.user.key();
-
-        let seeds = &[AMM_POOL_SEED, token_mint_key.as_ref(), &[pool_bump]];
-        token::mint_to(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                MintTo {
-                    mint: ctx.accounts.lp_mint.to_account_info(),
-                    to: ctx.accounts.user_lp_account.to_account_info(),
-                    authority: pool_account_info,
-                },
-                &[&seeds[..]],
-            ),
-            lp_amount,
-        )?;
-
-        // Update reserves
-        pool.sol_reserve = pool.sol_reserve.checked_add(sol_amount).unwrap();
-        pool.token_reserve = pool.token_reserve.checked_add(token_amount).unwrap();
-        pool.lp_supply = pool.lp_supply.checked_add(lp_amount).unwrap();
-
-        emit!(LiquidityAdded {
-            pool: pool_key,
-            user: user_key,
-            sol_amount,
-            token_amount,
-            lp_minted: lp_amount,
-        });
-
-        Ok(())
-    }
-
-    pub fn remove_liquidity_from_pool(
-        ctx: Context<RemoveLiquidity>,
-        lp_amount: u64,
-        min_sol_amount: u64,
-        min_token_amount: u64,
-    ) -> Result<()> {
-        let pool_account_info = ctx.accounts.pool.to_account_info();
-        let pool = &mut ctx.accounts.pool;
-
-        require!(lp_amount > 0, AmmError::InvalidAmount);
-        require!(pool.is_initialized, AmmError::PoolNotInitialized);
-
-        // Calculate amounts to return
-        let sol_amount = (lp_amount as u128)
-            .checked_mul(pool.sol_reserve as u128)
-            .unwrap()
-            .checked_div(pool.lp_supply as u128)
-            .unwrap() as u64;
-        let token_amount = (lp_amount as u128)
-            .checked_mul(pool.token_reserve as u128)
-            .unwrap()
-            .checked_div(pool.lp_supply as u128)
-            .unwrap() as u64;
-
-        require!(sol_amount >= min_sol_amount, AmmError::SlippageExceeded);
-        require!(token_amount >= min_token_amount, AmmError::SlippageExceeded);
-
-        msg!(
-            "Removing liquidity: {} LP, {} SOL, {} tokens",
-            lp_amount,
-            sol_amount,
-            token_amount
-        );
-
-        // Burn LP tokens
-        token::burn(
-            CpiContext::new(
-                ctx.accounts.token_program.to_account_info(),
-                Burn {
-                    mint: ctx.accounts.lp_mint.to_account_info(),
-                    from: ctx.accounts.user_lp_account.to_account_info(),
-                    authority: ctx.accounts.user.to_account_info(),
-                },
-            ),
-            lp_amount,
-        )?;
-
-        let token_mint_key = pool.token_mint;
-        let pool_bump = pool.bump;
-        let pool_key = pool.key();
-        let user_key = ctx.accounts.user.key();
-        let seeds = &[AMM_POOL_SEED, token_mint_key.as_ref(), &[pool_bump]];
-
-        // Transfer SOL back
-        **ctx
-            .accounts
-            .sol_vault
-            .to_account_info()
-            .try_borrow_mut_lamports()? -= sol_amount;
-        **ctx
-            .accounts
-            .user
-            .to_account_info()
-            .try_borrow_mut_lamports()? += sol_amount;
-
-        // Transfer tokens back
-        token::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.token_program.to_account_info(),
-                TransferChecked {
-                    from: ctx.accounts.token_vault.to_account_info(),
-                    to: ctx.accounts.user_token_account.to_account_info(),
-                    mint: ctx.accounts.token_mint.to_account_info(),
-                    authority: pool_account_info,
-                },
-                &[&seeds[..]],
-            ),
-            token_amount,
-            9,
-        )?;
-
-        // Update reserves
-        pool.sol_reserve = pool.sol_reserve.checked_sub(sol_amount).unwrap();
-        pool.token_reserve = pool.token_reserve.checked_sub(token_amount).unwrap();
-        pool.lp_supply = pool.lp_supply.checked_sub(lp_amount).unwrap();
-
-        emit!(LiquidityRemoved {
-            pool: pool_key,
-            user: user_key,
-            sol_amount,
-            token_amount,
-            lp_burned: lp_amount,
         });
 
         Ok(())
@@ -490,6 +277,7 @@ pub mod meme_launchpad {
         Ok(())
     }
 
+    // ✅ FIXED: Proper SOL transfer from vault to user using invoke_signed
     pub fn swap_tokens_to_sol(
         ctx: Context<SwapTokensForSol>,
         token_amount: u64,
@@ -544,17 +332,53 @@ pub mod meme_launchpad {
             9,
         )?;
 
-        // Transfer SOL from vault to user (manual lamport transfer)
-        **ctx
-            .accounts
-            .sol_vault
-            .to_account_info()
-            .try_borrow_mut_lamports()? -= sol_amount;
-        **ctx
-            .accounts
-            .user
-            .to_account_info()
-            .try_borrow_mut_lamports()? += sol_amount;
+        // ✅ FIXED: Transfer SOL from vault to user using proper system program CPI
+        // The sol_vault is a PDA, so we need to use the pool's authority
+        let token_mint_key = pool.token_mint;
+        let pool_bump = pool.bump;
+        
+        // Create PDA signer seeds for the pool
+        let pool_seeds = &[
+            AMM_POOL_SEED,
+            token_mint_key.as_ref(),
+            &[pool_bump],
+        ];
+        let pool_signer = &[&pool_seeds[..]];
+
+        // However, sol_vault is derived differently, so we need its seeds
+        let sol_vault_seeds = &[
+            POOL_SOL_VAULT_SEED,
+            token_mint_key.as_ref(),
+        ];
+        let (sol_vault_pda, sol_vault_bump) = Pubkey::find_program_address(sol_vault_seeds, ctx.program_id);
+        
+        // Verify we have the right vault
+        require_keys_eq!(
+            sol_vault_pda,
+            ctx.accounts.sol_vault.key(),
+            AmmError::InvalidVault
+        );
+
+        // Create vault signer seeds
+        let vault_signer_seeds = &[
+            POOL_SOL_VAULT_SEED,
+            token_mint_key.as_ref(),
+            &[sol_vault_bump],
+        ];
+        let vault_signer = &[&vault_signer_seeds[..]];
+
+        // Transfer SOL from sol_vault to user using system program with PDA signing
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.to_account_info(),
+                system_program::Transfer {
+                    from: ctx.accounts.sol_vault.to_account_info(),
+                    to: ctx.accounts.user.to_account_info(),
+                },
+                vault_signer,
+            ),
+            sol_amount,
+        )?;
 
         // Update reserves
         pool.sol_reserve = pool.sol_reserve.checked_sub(sol_amount).unwrap();
@@ -593,7 +417,8 @@ fn transfer_native_sol_fee(accounts: &MintMemeToken, fee_lamports: u64) -> Resul
 
 fn distribute_supply(ctx: &Context<MintMemeToken>) -> Result<()> {
     const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
-    let minter_share = TOTAL_SUPPLY * 2 / 100;
+    // 0.1% to minter
+    let minter_share = TOTAL_SUPPLY / 1000;
     let vault_share = TOTAL_SUPPLY - minter_share;
 
     let mint_key = ctx.accounts.mint.key();
@@ -643,13 +468,6 @@ pub struct InitializeProtocolState<'info> {
 }
 
 #[derive(Accounts)]
-pub struct ResetProtocolState<'info> {
-    #[account(mut, seeds = [b"protocol_state_v2"], bump = protocol_state.bump, has_one = authority)]
-    pub protocol_state: Account<'info, ProtocolState>,
-    pub authority: Signer<'info>,
-}
-
-#[derive(Accounts)]
 #[instruction(meme_id: [u8; 32])]
 pub struct MintMemeToken<'info> {
     #[account(mut)]
@@ -690,17 +508,6 @@ pub struct InitializePool<'info> {
     pub pool: Account<'info, AmmPool>,
 
     #[account(
-        init,
-        payer = initializer,
-        mint::decimals = 9,
-        mint::authority = pool,
-        seeds = [LP_MINT_SEED, token_mint.key().as_ref()],
-        bump,
-        mint::token_program = token_program
-    )]
-    pub lp_mint: InterfaceAccount<'info, Mint>,
-
-    #[account(
         mut,
         seeds = [POOL_SOL_VAULT_SEED, token_mint.key().as_ref()],
         bump
@@ -729,59 +536,8 @@ pub struct InitializePool<'info> {
     #[account(mut)]
     pub vault_token_account: UncheckedAccount<'info>,
 
-    #[account(
-        init_if_needed,
-        payer = initializer,
-        associated_token::mint = lp_mint,
-        associated_token::authority = initializer,
-        associated_token::token_program = token_program
-    )]
-    pub initializer_lp_account: InterfaceAccount<'info, TokenAccount>,
-
     pub token_program: Program<'info, Token2022>,
     pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-}
-#[derive(Accounts)]
-pub struct AddLiquidity<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
-    #[account(mut, seeds = [AMM_POOL_SEED, pool.token_mint.as_ref()], bump = pool.bump)]
-    pub pool: Account<'info, AmmPool>,
-    pub token_mint: InterfaceAccount<'info, Mint>,
-    #[account(mut)]
-    pub lp_mint: InterfaceAccount<'info, Mint>,
-    #[account(mut, seeds = [POOL_SOL_VAULT_SEED, pool.token_mint.as_ref()], bump)]
-    pub sol_vault: SystemAccount<'info>,
-    #[account(mut)]
-    pub token_vault: InterfaceAccount<'info, TokenAccount>,
-    #[account(mut, constraint = user_token_account.mint == pool.token_mint, constraint = user_token_account.owner == user.key())]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    #[account(init_if_needed, payer = user, associated_token::mint = lp_mint, associated_token::authority = user, associated_token::token_program = token_program)]
-    pub user_lp_account: InterfaceAccount<'info, TokenAccount>,
-    pub token_program: Program<'info, Token2022>,
-    pub associated_token_program: Program<'info, AssociatedToken>,
-    pub system_program: Program<'info, System>,
-}
-
-#[derive(Accounts)]
-pub struct RemoveLiquidity<'info> {
-    #[account(mut)]
-    pub user: Signer<'info>,
-    #[account(mut, seeds = [AMM_POOL_SEED, pool.token_mint.as_ref()], bump = pool.bump)]
-    pub pool: Account<'info, AmmPool>,
-    pub token_mint: InterfaceAccount<'info, Mint>,
-    #[account(mut)]
-    pub lp_mint: InterfaceAccount<'info, Mint>,
-    #[account(mut, seeds = [POOL_SOL_VAULT_SEED, pool.token_mint.as_ref()], bump)]
-    pub sol_vault: SystemAccount<'info>,
-    #[account(mut)]
-    pub token_vault: InterfaceAccount<'info, TokenAccount>,
-    #[account(mut, constraint = user_token_account.mint == pool.token_mint, constraint = user_token_account.owner == user.key())]
-    pub user_token_account: InterfaceAccount<'info, TokenAccount>,
-    #[account(mut, constraint = user_lp_account.mint == lp_mint.key(), constraint = user_lp_account.owner == user.key())]
-    pub user_lp_account: InterfaceAccount<'info, TokenAccount>,
-    pub token_program: Program<'info, Token2022>,
     pub system_program: Program<'info, System>,
 }
 
@@ -816,6 +572,7 @@ pub struct SwapTokensForSol<'info> {
 
     pub token_mint: InterfaceAccount<'info, Mint>,
 
+    /// CHECK: SOL vault PDA - validated by seeds in instruction
     #[account(
         mut,
         seeds = [POOL_SOL_VAULT_SEED, pool.token_mint.as_ref()],
@@ -859,18 +616,16 @@ pub struct MemeTokenState {
 #[account]
 pub struct AmmPool {
     pub token_mint: Pubkey,
-    pub lp_mint: Pubkey,
     pub sol_vault: Pubkey,
     pub token_vault: Pubkey,
     pub sol_reserve: u64,
     pub token_reserve: u64,
-    pub lp_supply: u64,
     pub bump: u8,
     pub is_initialized: bool,
 }
 
 impl AmmPool {
-    pub const LEN: usize = 32 + 32 + 32 + 32 + 8 + 8 + 8 + 1 + 1;
+    pub const LEN: usize = 32 + 32 + 32 + 8 + 8 + 1 + 1;
 }
 
 // ==================== EVENTS ====================
@@ -893,28 +648,8 @@ pub struct Minted {
 pub struct PoolInitialized {
     pub pool: Pubkey,
     pub token_mint: Pubkey,
-    pub lp_mint: Pubkey,
     pub initial_sol: u64,
     pub initial_tokens: u64,
-    pub lp_minted: u64,
-}
-
-#[event]
-pub struct LiquidityAdded {
-    pub pool: Pubkey,
-    pub user: Pubkey,
-    pub sol_amount: u64,
-    pub token_amount: u64,
-    pub lp_minted: u64,
-}
-
-#[event]
-pub struct LiquidityRemoved {
-    pub pool: Pubkey,
-    pub user: Pubkey,
-    pub sol_amount: u64,
-    pub token_amount: u64,
-    pub lp_burned: u64,
 }
 
 #[event]
@@ -947,4 +682,6 @@ pub enum AmmError {
     InsufficientLiquidity,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("Invalid vault")]
+    InvalidVault,
 }
