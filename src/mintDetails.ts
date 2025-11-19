@@ -1,7 +1,7 @@
 import { getAccount, TokenAccountNotFoundError, TokenInvalidAccountOwnerError, getMint } from "@solana/spl-token";
 import { PublicKey } from "@solana/web3.js";
 import { getProgram } from "./service";
-import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";  // Changed from TOKEN_2022_PROGRAM_ID
+import { TOKEN_2022_PROGRAM_ID } from "@solana/spl-token";
 import { getVaultPda } from "./service";
 import { getAssociatedTokenAddressSync } from "@solana/spl-token";
 import { memeIdToString } from "./helpers";
@@ -23,7 +23,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
       connection,
       tokenAccountAddress,
       undefined,
-      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID
     );
 
     return {
@@ -44,6 +44,7 @@ export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
 }
 
 // === Get Meme Token Distribution Balances ===
+// ⚠️ UPDATED: Changed from 2% to 0.1% for minter validation
 export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
   mint: PublicKey;
   totalSupply: string;
@@ -81,14 +82,14 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
       mintPDA,
       adminKeypair.publicKey,
       false,
-      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID
     );
 
     const vaultTokenAccount = getAssociatedTokenAddressSync(
       mintPDA,
       vault,
       true, // allowOwnerOffCurve for PDA
-      TOKEN_2022_PROGRAM_ID  // Changed from TOKEN_2022_PROGRAM_ID
+      TOKEN_2022_PROGRAM_ID
     );
 
     // Get balances
@@ -113,9 +114,10 @@ export async function getMemeTokenDistribution(memeId: Buffer): Promise<{
         totalDistributed: total,
         minterShare: (minterNum / total) * 100,
         vaultShare: (vaultNum / total) * 100,
+        // ✅ UPDATED: Changed from 2% to 0.1% (and 98% to 99.9%)
         isCorrectDistribution: total === TOTAL_SUPPLY &&
-          Math.abs((minterNum / total) * 100 - 2) < 0.001 &&
-          Math.abs((vaultNum / total) * 100 - 98) < 0.001,
+          Math.abs((minterNum / total) * 100 - 0.1) < 0.001 &&
+          Math.abs((vaultNum / total) * 100 - 99.9) < 0.001,
       };
     }
 
@@ -210,8 +212,8 @@ export async function getRecentMintDistribution(memeIdString: string) {
   };
 }
 
-
 // === Get minted tokens by a specific user ===
+// ⚠️ UPDATED: Added poolDetails for consistency with getAllMintedTokens
 export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<Array<{
   memeId: string;
   memeIdHex: string;
@@ -219,29 +221,46 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
   minter: string;
   createdAt: string;
   isInitialized: boolean;
+  poolDetails?: {
+    isInitialized: boolean;
+    solReserve: string;
+    tokenReserve: string;
+    currentPrice: string;
+  };
 }>> {
   const { program } = getProgram();
 
   try {
     const memeTokenStates = await program.account.memeTokenState.all();
+    let userTokens = [];
 
     // Filter tokens minted by the specified user
-    return memeTokenStates
-      .filter((state) => {
-        const account = state.account as any;
-        return account.minter.equals(userPublicKey);
-      })
-      .map((state) => {
-        const account = state.account as any;
-        return {
-          memeId: memeIdToString(account.memeId),
-          memeIdHex: account.memeId.toString('hex'),
-          mint: account.mint.toBase58(),
-          minter: account.minter.toBase58(),
-          createdAt: account.createdAt.toString(),
-          isInitialized: account.isInitialized === 1,
-        };
+    for (const state of memeTokenStates) {
+      const account = state.account as any;
+      
+      if (!account.minter.equals(userPublicKey)) {
+        continue;
+      }
+
+      const poolDetails = await getAmmPool(account.mint);
+
+      userTokens.push({
+        memeId: memeIdToString(account.memeId),
+        memeIdHex: account.memeId.toString('hex'),
+        mint: account.mint.toBase58(),
+        minter: account.minter.toBase58(),
+        createdAt: account.createdAt.toString(),
+        isInitialized: account.isInitialized === 1,
+        poolDetails: poolDetails ? {
+          isInitialized: poolDetails.isInitialized,
+          solReserve: poolDetails.solReserve.toString(),
+          tokenReserve: poolDetails.tokenReserve.toString(),
+          currentPrice: poolDetails.currentPrice,
+        } : undefined,
       });
+    }
+
+    return userTokens;
   } catch (error) {
     console.error("Error fetching minted tokens by user:", error);
     return [];
@@ -249,6 +268,7 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
 }
 
 // === Get all minted tokens (from all users) ===
+// ⚠️ UPDATED: Removed lpSupply from pool details
 export async function getAllMintedTokens(): Promise<Array<{
   memeId: string;
   memeIdHex: string;
@@ -256,6 +276,12 @@ export async function getAllMintedTokens(): Promise<Array<{
   minter: string;
   createdAt: string;
   isInitialized: boolean;
+  poolDetails?: {
+    isInitialized: boolean;
+    solReserve: string;
+    tokenReserve: string;
+    currentPrice: string;
+  };
 }>> {
   const { program } = getProgram();
 
@@ -275,14 +301,13 @@ export async function getAllMintedTokens(): Promise<Array<{
         minter: account.minter.toBase58(),
         createdAt: account.createdAt.toString(),
         isInitialized: account.isInitialized,
-        poolDetails: {
-          isInitialized: poolDetails?.isInitialized,
-          lpSupply: poolDetails?.lpSupply?.toString(),
-          solReserve: poolDetails?.solReserve?.toString(),
-          tokenReserve: poolDetails?.tokenReserve?.toString(),
-          
-        }
-      }
+        poolDetails: poolDetails ? {
+          isInitialized: poolDetails.isInitialized,
+          solReserve: poolDetails.solReserve.toString(),
+          tokenReserve: poolDetails.tokenReserve.toString(),
+          currentPrice: poolDetails.currentPrice,
+        } : undefined,
+      };
 
       allTokens.push(token);
     }
@@ -294,32 +319,33 @@ export async function getAllMintedTokens(): Promise<Array<{
   }
 }
 
+// ==================== AMM POOL INTERFACES ====================
 
+// ⚠️ UPDATED: Removed lpMint and lpSupply
 export interface AmmPool {
   tokenMint: PublicKey;
-  lpMint: PublicKey;
   solVault: PublicKey;
   tokenVault: PublicKey;
-  solReserve: BN;      // Keep as BN from Anchor
-  tokenReserve: BN;    // Keep as BN from Anchor
-  lpSupply: BN;        // Keep as BN from Anchor
+  solReserve: BN;
+  tokenReserve: BN;
   bump: number;
   isInitialized: boolean;
+  currentPrice: string; // Calculated: SOL per token
 }
 
-// If you need a serializable version for API responses
+// ⚠️ UPDATED: Removed lpMint and lpSupply
 export interface AmmPoolResponse {
   tokenMint: string;
-  lpMint: string;
   solVault: string;
   tokenVault: string;
   solReserve: string;
   tokenReserve: string;
-  lpSupply: string;
+  currentPrice: string;
   bump: number;
   isInitialized: boolean;
 }
 
+// ⚠️ UPDATED: Removed LP-related fields, added price calculation
 export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> {
   const { program } = getProgram();
 
@@ -327,30 +353,29 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
     // Derive the PDA for the AmmPool account
     const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
 
-    // Fetch the account - Anchor will handle decoding based on your IDL
-    const poolAccount = await program.account.ammPool.fetch(poolPda) as unknown as AmmPool;
+    // Fetch the account
+    const poolAccount = await program.account.ammPool.fetch(poolPda) as any;
 
     if (!poolAccount) {
       return null;
     }
+
     const tokenDecimals = 9;
-    const lpDecimals = 9;
+    const solReserve = Number(poolAccount.solReserve.toString());
+    const tokenReserve = Number(poolAccount.tokenReserve.toString());
 
-    const solReserve = formatTokenAmount(poolAccount.solReserve.toString(), 9);
-    const tokenReserve = formatTokenAmount(poolAccount.tokenReserve.toString(), tokenDecimals);
-    const lpSupply = formatTokenAmount(poolAccount.lpSupply.toString(), lpDecimals);
+    // Calculate current price (SOL per token)
+    const currentPrice = (solReserve / tokenReserve).toExponential(8);
 
-    // Anchor returns the account with proper types from your IDL
     return {
       tokenMint: poolAccount.tokenMint,
-      lpMint: poolAccount.lpMint,
       solVault: poolAccount.solVault,
       tokenVault: poolAccount.tokenVault,
-      solReserve: solReserve,
-      tokenReserve: tokenReserve,
-      lpSupply: lpSupply,
+      solReserve: poolAccount.solReserve,
+      tokenReserve: poolAccount.tokenReserve,
       bump: poolAccount.bump,
       isInitialized: poolAccount.isInitialized,
+      currentPrice,
     };
   } catch (error) {
     console.error("Error fetching AmmPool:", error);
@@ -358,22 +383,21 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
   }
 }
 
-// Helper function to convert to serializable format for API responses
+// ⚠️ UPDATED: Removed LP-related fields
 export function ammPoolToResponse(pool: AmmPool): AmmPoolResponse {
   return {
     tokenMint: pool.tokenMint.toBase58(),
-    lpMint: pool.lpMint.toBase58(),
     solVault: pool.solVault.toBase58(),
     tokenVault: pool.tokenVault.toBase58(),
     solReserve: pool.solReserve.toString(),
     tokenReserve: pool.tokenReserve.toString(),
-    lpSupply: pool.lpSupply.toString(),
+    currentPrice: pool.currentPrice,
     bump: pool.bump,
     isInitialized: pool.isInitialized,
   };
 }
 
-// Your PDA derivation function should look like this:
+// ✅ UNCHANGED: PDA derivation
 export function getAmmPoolPda(
   tokenMint: PublicKey,
   programId: PublicKey
@@ -383,46 +407,46 @@ export function getAmmPoolPda(
     programId
   );
 }
-interface AddLiquidityCalculation {
+
+// ==================== BONDING CURVE CALCULATIONS ====================
+
+// ❌ REMOVED: calculateAddLiquidity - no longer needed
+// ❌ REMOVED: getAddLiquidityParams - no longer needed
+// ✅ ADDED: Bonding curve buy/sell calculations
+
+/**
+ * Calculate expected output when buying tokens with SOL
+ */
+export interface BuyCalculation {
   poolState: {
-    solReserve: string;           // Human-readable (e.g., "0.05")
-    tokenReserve: string;         // Human-readable (e.g., "100")
-    lpSupply: string;             // Human-readable (e.g., "2.236")
-    currentPrice: string;         // How many tokens per 1 SOL
+    solReserve: string;
+    tokenReserve: string;
+    currentPrice: string;
     isInitialized: boolean;
   };
   userInput: {
-    solAmount: number;            // What user wants to add
-    slippagePercent: number;      // Slippage tolerance
+    solAmount: number;
+    slippagePercent: number;
   };
   calculations: {
-    requiredTokens: number;       // Exact tokens needed
-    maxTokenAmount: number;       // With slippage buffer
-    expectedLp: number;           // LP tokens to receive
-    minLpAmount: number;          // With slippage buffer
+    solAfterFee: number;
+    fee: number;
+    tokensOut: string;
+    minTokensOut: string; // With slippage
   };
   priceImpact: {
     newSolReserve: string;
     newTokenReserve: string;
     newPrice: string;
-    priceChange: string;          // Percentage change
-  };
-  userShare: {
-    currentOwnership: string;     // "0%" if new user
-    newOwnership: string;         // After adding liquidity
+    priceChangePercent: string;
   };
 }
 
-/**
- * Calculate all parameters needed for adding liquidity
- * This gives users complete transparency about what will happen
- */
-export async function calculateAddLiquidity(
+export async function calculateBuyTokens(
   tokenMint: string,
   solAmount: number,
-  slippagePercent: number = 1,
-  userCurrentLp: number = 0  // Optional: if user already has LP tokens
-): Promise<AddLiquidityCalculation | null> {
+  slippagePercent: number = 1
+): Promise<BuyCalculation | null> {
   try {
     const tokenMintPk = new PublicKey(tokenMint);
     const pool = await getAmmPool(tokenMintPk);
@@ -433,47 +457,36 @@ export async function calculateAddLiquidity(
     }
 
     const DECIMALS = 9;
+    const FEE_PERCENT = 0.3;
 
     // Convert from base units to human-readable
     const solReserve = Number(pool.solReserve.toString()) / 1e9;
     const tokenReserve = Number(pool.tokenReserve.toString()) / Math.pow(10, DECIMALS);
-    const lpSupply = Number(pool.lpSupply.toString()) / Math.pow(10, DECIMALS);
 
     // Calculate current price
-    const currentPrice = tokenReserve / solReserve;
+    const currentPrice = solReserve / tokenReserve;
 
-    // Calculate exact tokens needed to maintain ratio
-    const requiredTokens = (solAmount * tokenReserve) / solReserve;
+    // Calculate fee
+    const fee = solAmount * (FEE_PERCENT / 100);
+    const solAfterFee = solAmount - fee;
 
-    // Add slippage buffer for max tokens (user willing to give up to this much)
-    const maxTokenAmount = requiredTokens * (1 + slippagePercent / 100);
+    // Constant product formula: tokensOut = (solAfterFee * tokenReserve) / (solReserve + solAfterFee)
+    const tokensOut = (solAfterFee * tokenReserve) / (solReserve + solAfterFee);
 
-    // Calculate expected LP tokens
-    const lpFromSol = (solAmount * lpSupply) / solReserve;
-    const lpFromToken = (requiredTokens * lpSupply) / tokenReserve;
-    const expectedLp = Math.min(lpFromSol, lpFromToken);
+    // Apply slippage protection
+    const minTokensOut = tokensOut * (1 - slippagePercent / 100);
 
-    // Subtract slippage buffer for min LP (user wants at least this much)
-    const minLpAmount = expectedLp * (1 - slippagePercent / 100);
-
-    // Calculate new pool state after adding liquidity
+    // Calculate new pool state
     const newSolReserve = solReserve + solAmount;
-    const newTokenReserve = tokenReserve + requiredTokens;
-    const newPrice = newTokenReserve / newSolReserve;
-    const priceChange = ((newPrice - currentPrice) / currentPrice) * 100;
-
-    // Calculate ownership percentages
-    const newLpSupply = lpSupply + expectedLp;
-    const currentOwnership = lpSupply > 0 ? (userCurrentLp / lpSupply) * 100 : 0;
-    const newUserLp = userCurrentLp + expectedLp;
-    const newOwnership = (newUserLp / newLpSupply) * 100;
+    const newTokenReserve = tokenReserve - tokensOut;
+    const newPrice = newSolReserve / newTokenReserve;
+    const priceChangePercent = ((newPrice - currentPrice) / currentPrice) * 100;
 
     return {
       poolState: {
         solReserve: solReserve.toFixed(6),
         tokenReserve: tokenReserve.toFixed(6),
-        lpSupply: lpSupply.toFixed(6),
-        currentPrice: currentPrice.toFixed(6),
+        currentPrice: currentPrice.toExponential(8),
         isInitialized: pool.isInitialized,
       },
       userInput: {
@@ -481,49 +494,168 @@ export async function calculateAddLiquidity(
         slippagePercent,
       },
       calculations: {
-        requiredTokens: parseFloat(requiredTokens.toFixed(6)),
-        maxTokenAmount: parseFloat(maxTokenAmount.toFixed(6)),
-        expectedLp: parseFloat(expectedLp.toFixed(6)),
-        minLpAmount: parseFloat(minLpAmount.toFixed(6)),
+        solAfterFee: parseFloat(solAfterFee.toFixed(6)),
+        fee: parseFloat(fee.toFixed(6)),
+        tokensOut: tokensOut.toFixed(6),
+        minTokensOut: minTokensOut.toFixed(6),
       },
       priceImpact: {
         newSolReserve: newSolReserve.toFixed(6),
         newTokenReserve: newTokenReserve.toFixed(6),
-        newPrice: newPrice.toFixed(6),
-        priceChange: priceChange.toFixed(4),
-      },
-      userShare: {
-        currentOwnership: currentOwnership.toFixed(2) + "%",
-        newOwnership: newOwnership.toFixed(2) + "%",
+        newPrice: newPrice.toExponential(8),
+        priceChangePercent: priceChangePercent.toFixed(4),
       },
     };
   } catch (error) {
-    console.error("Error calculating add liquidity:", error);
+    console.error("Error calculating buy tokens:", error);
     return null;
   }
 }
 
 /**
- * Simpler version - just returns the parameters needed for the transaction
+ * Calculate expected output when selling tokens for SOL
  */
-export async function getAddLiquidityParams(
+export interface SellCalculation {
+  poolState: {
+    solReserve: string;
+    tokenReserve: string;
+    currentPrice: string;
+    isInitialized: boolean;
+  };
+  userInput: {
+    tokenAmount: number;
+    slippagePercent: number;
+  };
+  calculations: {
+    tokensAfterFee: number;
+    fee: number;
+    solOut: number;
+    minSolOut: number; // With slippage
+  };
+  priceImpact: {
+    newSolReserve: string;
+    newTokenReserve: string;
+    newPrice: string;
+    priceChangePercent: string;
+  };
+}
+
+export async function calculateSellTokens(
+  tokenMint: string,
+  tokenAmount: number,
+  slippagePercent: number = 1
+): Promise<SellCalculation | null> {
+  try {
+    const tokenMintPk = new PublicKey(tokenMint);
+    const pool = await getAmmPool(tokenMintPk);
+
+    if (!pool || !pool.isInitialized) {
+      console.error("Pool not found or not initialized");
+      return null;
+    }
+
+    const DECIMALS = 9;
+    const FEE_PERCENT = 0.3;
+
+    // Convert from base units to human-readable
+    const solReserve = Number(pool.solReserve.toString()) / 1e9;
+    const tokenReserve = Number(pool.tokenReserve.toString()) / Math.pow(10, DECIMALS);
+
+    // Calculate current price
+    const currentPrice = solReserve / tokenReserve;
+
+    // Calculate fee
+    const fee = tokenAmount * (FEE_PERCENT / 100);
+    const tokensAfterFee = tokenAmount - fee;
+
+    // Constant product formula: solOut = (tokensAfterFee * solReserve) / (tokenReserve + tokensAfterFee)
+    const solOut = (tokensAfterFee * solReserve) / (tokenReserve + tokensAfterFee);
+
+    // Apply slippage protection
+    const minSolOut = solOut * (1 - slippagePercent / 100);
+
+    // Calculate new pool state
+    const newSolReserve = solReserve - solOut;
+    const newTokenReserve = tokenReserve + tokenAmount;
+    const newPrice = newSolReserve / newTokenReserve;
+    const priceChangePercent = ((currentPrice - newPrice) / currentPrice) * 100;
+
+    return {
+      poolState: {
+        solReserve: solReserve.toFixed(6),
+        tokenReserve: tokenReserve.toFixed(6),
+        currentPrice: currentPrice.toExponential(8),
+        isInitialized: pool.isInitialized,
+      },
+      userInput: {
+        tokenAmount,
+        slippagePercent,
+      },
+      calculations: {
+        tokensAfterFee: parseFloat(tokensAfterFee.toFixed(6)),
+        fee: parseFloat(fee.toFixed(6)),
+        solOut: parseFloat(solOut.toFixed(6)),
+        minSolOut: parseFloat(minSolOut.toFixed(6)),
+      },
+      priceImpact: {
+        newSolReserve: newSolReserve.toFixed(6),
+        newTokenReserve: newTokenReserve.toFixed(6),
+        newPrice: newPrice.toExponential(8),
+        priceChangePercent: priceChangePercent.toFixed(4),
+      },
+    };
+  } catch (error) {
+    console.error("Error calculating sell tokens:", error);
+    return null;
+  }
+}
+
+/**
+ * Get simple buy parameters for transaction (without full details)
+ */
+export async function getBuyParams(
   tokenMint: string,
   solAmount: number,
   slippagePercent: number = 1
 ): Promise<{
-  maxTokenAmount: number;
-  minLpAmount: number;
-  requiredTokens: number;
-  expectedLp: number;
+  minTokenAmount: string;
+  expectedTokens: string;
+  fee: number;
+  priceImpact: string;
 } | null> {
-  const calculation = await calculateAddLiquidity(tokenMint, solAmount, slippagePercent);
+  const calculation = await calculateBuyTokens(tokenMint, solAmount, slippagePercent);
   
   if (!calculation) return null;
 
   return {
-    maxTokenAmount: calculation.calculations.maxTokenAmount,
-    minLpAmount: calculation.calculations.minLpAmount,
-    requiredTokens: calculation.calculations.requiredTokens,
-    expectedLp: calculation.calculations.expectedLp,
+    minTokenAmount: calculation.calculations.minTokensOut,
+    expectedTokens: calculation.calculations.tokensOut,
+    fee: calculation.calculations.fee,
+    priceImpact: calculation.priceImpact.priceChangePercent + '%',
+  };
+}
+
+/**
+ * Get simple sell parameters for transaction (without full details)
+ */
+export async function getSellParams(
+  tokenMint: string,
+  tokenAmount: number,
+  slippagePercent: number = 1
+): Promise<{
+  minSolAmount: number;
+  expectedSol: number;
+  fee: number;
+  priceImpact: string;
+} | null> {
+  const calculation = await calculateSellTokens(tokenMint, tokenAmount, slippagePercent);
+  
+  if (!calculation) return null;
+
+  return {
+    minSolAmount: calculation.calculations.minSolOut,
+    expectedSol: calculation.calculations.solOut,
+    fee: calculation.calculations.fee,
+    priceImpact: calculation.priceImpact.priceChangePercent + '%',
   };
 }
