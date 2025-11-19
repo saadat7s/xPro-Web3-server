@@ -21,9 +21,9 @@ import {
 import { getProgram } from "../utils/getProgram";
 
 // === Initialize Protocol State (unsigned) ===
+// ⚠️ UPDATED: No longer accepts feeLamports parameter - it's hardcoded in contract to 0.01 SOL
 export async function createInitializeProtocolStateTransaction(
   adminPublicKey: PublicKey,
-  feeLamports: number,
 ) {
   const { program, connection } = getProgram();
 
@@ -34,7 +34,7 @@ export async function createInitializeProtocolStateTransaction(
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
     const transaction = await program.methods
-      .initializeProtocolState(new anchor.BN(feeLamports))
+      .initializeProtocolState() // ✅ No parameters - fee is hardcoded to 0.01 SOL
       .accounts({
         protocolState: protocolState,
         authority: adminPublicKey,
@@ -48,12 +48,16 @@ export async function createInitializeProtocolStateTransaction(
 
     return {
       success: true,
-      message: "Initialize protocol state transaction created successfully!",
+      message: "Initialize protocol state transaction created successfully! (Fee: 0.01 SOL)",
       transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
       accounts: {
         protocolState: protocolState.toString(),
         feeVault: feeVault.toString(),
         authority: adminPublicKey.toString(),
+      },
+      metadata: {
+        mintFee: "0.01 SOL (10,000,000 lamports)",
+        note: "Mint fee is hardcoded in the smart contract",
       },
     };
   } catch (error: any) {
@@ -64,44 +68,11 @@ export async function createInitializeProtocolStateTransaction(
   }
 }
 
-// === Reset Protocol State (unsigned) ===
-export async function createResetProtocolStateTransaction(adminPublicKey: PublicKey) {
-  const { program, connection } = getProgram();
-
-  const [protocolState] = getProtocolStatePda(program.programId);
-
-  try {
-    const { blockhash } = await connection.getLatestBlockhash("finalized");
-
-    const transaction = await program.methods
-      .resetProtocolState()
-      .accounts({
-        protocolState,
-        authority: adminPublicKey,
-      })
-      .transaction();
-
-    transaction.feePayer = adminPublicKey;
-    transaction.recentBlockhash = blockhash;
-
-    return {
-      success: true,
-      message: "Reset protocol state transaction created successfully!",
-      transaction: transaction.serialize({ requireAllSignatures: false }).toString("base64"),
-      accounts: {
-        protocolState: protocolState.toString(),
-        authority: adminPublicKey.toString(),
-      },
-    };
-  } catch (error: any) {
-    return {
-      success: false,
-      message: `Error creating reset protocol state transaction: ${error.message || error}`,
-    };
-  }
-}
+// ❌ REMOVED: Reset Protocol State function - no longer exists in contract
+// The mint fee is now fixed at 0.01 SOL and cannot be changed
 
 // === Mint Meme Token (unsigned) ===
+// ✅ UNCHANGED: Still costs 0.01 SOL, but now it's enforced by the contract
 export async function createMintMemeTokenTransaction(minterPublicKey: PublicKey, memeId: Buffer) {
   const { program, connection } = getProgram();
 
@@ -169,6 +140,14 @@ export async function createMintMemeTokenTransaction(minterPublicKey: PublicKey,
         feeVault: feeVault.toString(),
         protocolState: protocolState.toString(),
       },
+      metadata: {
+        fee: "0.01 SOL (10,000,000 lamports)",
+        totalSupply: "1,000,000,000 tokens",
+        distribution: {
+          creator: "0.1% (1,000,000 tokens)",
+          vault: "99.9% (999,000,000 tokens)",
+        },
+      },
     };
   } catch (error: any) {
     return {
@@ -179,6 +158,7 @@ export async function createMintMemeTokenTransaction(minterPublicKey: PublicKey,
 }
 
 // === Create Associated Token Account (Token-2022, unsigned) ===
+// ✅ UNCHANGED: Utility function still needed
 export async function createCreateAssociatedTokenAccountTransaction(
   payerPublicKey: PublicKey,
   mint: PublicKey,
@@ -226,5 +206,3 @@ export async function createCreateAssociatedTokenAccountTransaction(
     };
   }
 }
-
-
