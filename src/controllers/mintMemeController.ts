@@ -3,36 +3,14 @@ import { PublicKey } from "@solana/web3.js";
 import { stringToMemeId } from "../helpers";
 import {
   createInitializeProtocolStateTransaction,
-  createResetProtocolStateTransaction,
   createMintMemeTokenTransaction,
   createCreateAssociatedTokenAccountTransaction,
 } from "../services/mintMemeService";
 
 export async function initializeProtocolTxController(req: Request, res: Response) {
   try {
-    const { admin, feeLamports } = req.body as { admin: string; feeLamports: number };
-
-    if (!admin || typeof feeLamports !== "number" || feeLamports <= 0) {
-      return res.status(400).json({ success: false, message: "admin and positive feeLamports are required" });
-    }
-
-    let adminPubkey: PublicKey;
-    try {
-      adminPubkey = new PublicKey(admin);
-    } catch (e) {
-      return res.status(400).json({ success: false, message: "Invalid admin public key" });
-    }
-
-    const result = await createInitializeProtocolStateTransaction(adminPubkey, feeLamports);
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error?.message || String(error) });
-  }
-}
-
-export async function resetProtocolTxController(req: Request, res: Response) {
-  try {
     const { admin } = req.body as { admin: string };
+
     if (!admin) {
       return res.status(400).json({ success: false, message: "admin is required" });
     }
@@ -44,12 +22,15 @@ export async function resetProtocolTxController(req: Request, res: Response) {
       return res.status(400).json({ success: false, message: "Invalid admin public key" });
     }
 
-    const result = await createResetProtocolStateTransaction(adminPubkey);
+    const result = await createInitializeProtocolStateTransaction(adminPubkey);
     return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }
+
+// ❌ REMOVED: Reset Protocol State controller - the service function no longer exists
+// The mint fee is now fixed at 0.01 SOL and cannot be changed
 
 export async function mintMemeTxController(req: Request, res: Response) {
   try {
