@@ -10,15 +10,13 @@ import { getAmmPool } from "../mintDetails";
 
 export async function initializeAmmPoolTxController(req: Request, res: Response) {
   try {
-    const { initializer, tokenMint, initialSolAmount, initialTokenAmount } = req.body as {
+    const { initializer, tokenMint } = req.body as {
       initializer: string;
       tokenMint: string;
-      initialSolAmount: number;
-      initialTokenAmount: number | string;
     };
 
-    if (!initializer || !tokenMint || initialSolAmount == null || initialTokenAmount == null) {
-      return res.status(400).json({ success: false, message: "initializer, tokenMint, initialSolAmount, initialTokenAmount are required" });
+    if (!initializer || !tokenMint) {
+      return res.status(400).json({ success: false, message: "initializer and tokenMint are required" });
     }
 
     let initializerPk: PublicKey;
@@ -28,7 +26,9 @@ export async function initializeAmmPoolTxController(req: Request, res: Response)
       return res.status(400).json({ success: false, message: "Invalid initializer public key" });
     }
 
-    const result = await createInitializeAmmPoolTransaction(initializerPk, tokenMint, initialSolAmount, initialTokenAmount);
+    // ⚠️ UPDATED: No longer accepts initialSolAmount and initialTokenAmount
+    // The Rust program uses FIXED parameters: 0.02 SOL + 800M tokens
+    const result = await createInitializeAmmPoolTransaction(initializerPk, tokenMint);
     return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error?.message || String(error) });
@@ -98,8 +98,10 @@ export async function getAmmPoolController(req: Request, res: Response) {
         tokenMint: ammPool.tokenMint.toBase58(),
         solVault: ammPool.solVault.toBase58(),
         tokenVault: ammPool.tokenVault.toBase58(),
-        solReserve: ammPool.solReserve.toString(),
-        tokenReserve: ammPool.tokenReserve.toString(),
+        solReserve: ammPool.solReserve.toString(), // Real SOL reserve
+        tokenReserve: ammPool.tokenReserve.toString(), // Real token reserve
+        virtualSolReserve: ammPool.virtualSolReserve.toString(), // Virtual SOL reserve (for market cap)
+        virtualTokenReserve: ammPool.virtualTokenReserve.toString(), // Virtual token reserve
         currentPrice: ammPool.currentPrice,
         bump: ammPool.bump,
         isInitialized: ammPool.isInitialized,
@@ -123,11 +125,11 @@ export async function swapSolForTokensTxController(req: Request, res: Response) 
       user: string;
       tokenMint: string;
       solAmount: number;
-      minTokenAmount: number | string;
+      minTokenAmount?: number; // ⭐ Optional parameter
     };
 
-    if (!user || !tokenMint || solAmount == null || minTokenAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, solAmount, minTokenAmount are required" });
+    if (!user || !tokenMint || solAmount == null) {
+      return res.status(400).json({ success: false, message: "user, tokenMint, and solAmount are required" });
     }
 
     let userPk: PublicKey;
@@ -137,6 +139,7 @@ export async function swapSolForTokensTxController(req: Request, res: Response) 
       return res.status(400).json({ success: false, message: "Invalid user public key" });
     }
 
+    // ⚠️ UPDATED: minTokenAmount is now optional (defaults to undefined = no slippage protection)
     const result = await createSwapSolForTokensTransaction(userPk, tokenMint, solAmount, minTokenAmount);
     return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
@@ -150,11 +153,11 @@ export async function swapTokensForSolTxController(req: Request, res: Response) 
       user: string;
       tokenMint: string;
       tokenAmount: number | string;
-      minSolAmount: number;
+      minSolAmount?: number; // ⭐ Optional parameter
     };
 
-    if (!user || !tokenMint || tokenAmount == null || minSolAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, tokenAmount, minSolAmount are required" });
+    if (!user || !tokenMint || tokenAmount == null) {
+      return res.status(400).json({ success: false, message: "user, tokenMint, and tokenAmount are required" });
     }
 
     let userPk: PublicKey;
@@ -164,6 +167,7 @@ export async function swapTokensForSolTxController(req: Request, res: Response) 
       return res.status(400).json({ success: false, message: "Invalid user public key" });
     }
 
+    // ⚠️ UPDATED: minSolAmount is now optional (defaults to undefined = no slippage protection)
     const result = await createSwapTokensForSolTransaction(userPk, tokenMint, tokenAmount, minSolAmount);
     return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
