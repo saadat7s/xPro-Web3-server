@@ -2,11 +2,9 @@ use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 use anchor_spl::associated_token::AssociatedToken;
 use anchor_spl::token_2022::Token2022;
-use anchor_spl::token_interface::{
-    self as token, Mint, MintTo, TokenAccount, TransferChecked,
-};
+use anchor_spl::token_interface::{self as token, Mint, MintTo, TokenAccount, TransferChecked};
 
-declare_id!("3LrvyGuyhsgPWrbQqZcKzSQeMAxCoZgTCmYxmT2FWfAJ");
+declare_id!("AvFrAyZRux3AUC3U1p82QuGzysqq85jdFfVzMB8rkqSy");
 
 // ==================== BONDING CURVE MEME LAUNCHPAD ====================
 //
@@ -14,20 +12,23 @@ declare_id!("3LrvyGuyhsgPWrbQqZcKzSQeMAxCoZgTCmYxmT2FWfAJ");
 //
 // 1. MINT TOKEN (0.01 SOL):
 //    - Creates SPL Token-2022 with 1B supply (9 decimals)
-//    - 0.1% (1M tokens) → Creator wallet
-//    - 99.9% (999M tokens) → Protocol vault
+//    - 100% (1B tokens) → Protocol vault
+//    - Minter gets 0% (fair launch)
 //
-// 2. INITIALIZE POOL:
-//    - Transfers tokens from vault to pool
-//    - User provides SOL to set initial price
-//    - Creates constant product bonding curve (x * y = k)
+// 2. INITIALIZE POOL (AUTOMATIC):
+//    - FIXED: 0.02 SOL + 800M tokens
+//    - User only needs to call initialize (no parameters)
+//    - Uses VIRTUAL RESERVES for pricing (pump.fun style)
 //
 // 3. BUY/SELL:
 //    - Users trade directly with pool (no LP tokens)
 //    - 0.3% fee on each trade
-//    - Price adjusts automatically via AMM formula
+//    - Price calculated using virtual reserves
 //
-// NO LP TOKENS: This is a bonding curve, not traditional liquidity provision
+// VIRTUAL RESERVES SYSTEM:
+// - Real reserves: Track actual SOL/tokens in pool
+// - Virtual reserves: Used for price calculation
+// - Creates instant market cap without massive capital
 //
 // ===========================================================================
 
@@ -35,6 +36,14 @@ declare_id!("3LrvyGuyhsgPWrbQqZcKzSQeMAxCoZgTCmYxmT2FWfAJ");
 
 // Mint fee: 0.01 SOL (10,000,000 lamports)
 pub const MINT_FEE_LAMPORTS: u64 = 10_000_000;
+
+// FIXED Pool Parameters (pump.fun style)
+pub const FIXED_INITIAL_SOL: u64 = 20_000_000; // 0.02 SOL
+pub const FIXED_INITIAL_TOKENS: u64 = 800_000_000_000_000_000; // 800M tokens
+
+// Virtual Reserves (for pricing)
+pub const INITIAL_VIRTUAL_SOL_RESERVES: u64 = 30_000_000_000; // 30 SOL
+pub const INITIAL_VIRTUAL_TOKEN_RESERVES: u64 = 1_073_000_000_000_000_000; // 1.073B tokens
 
 // AMM Constants
 pub const AMM_POOL_SEED: &[u8] = b"amm_pool";
@@ -79,7 +88,7 @@ pub mod meme_launchpad {
         // Transfer protocol fee
         transfer_native_sol_fee(&ctx.accounts, protocol_state.fee_lamports)?;
 
-        // Distribute supply
+        // Distribute supply (100% to vault, 0% to minter)
         distribute_supply(&ctx)?;
 
         // Update MemeTokenState
@@ -102,14 +111,9 @@ pub mod meme_launchpad {
 
     // ==================== AMM POOL FUNCTIONS ====================
 
-    pub fn initialize_amm_pool(
-        ctx: Context<InitializePool>,
-        initial_sol_amount: u64,
-        initial_token_amount: u64,
-    ) -> Result<()> {
-        require!(initial_sol_amount > 0, AmmError::InvalidAmount);
-        require!(initial_token_amount > 0, AmmError::InvalidAmount);
-
+    /// Initialize pool with FIXED parameters (pump.fun style)
+    /// User just calls this function, no parameters needed!
+    pub fn initialize_amm_pool(ctx: Context<InitializePool>) -> Result<()> {
         let token_mint_key = ctx.accounts.token_mint.key();
 
         // Derive PDAs
@@ -122,26 +126,50 @@ pub mod meme_launchpad {
             ctx.program_id,
         );
 
-        // Initialize pool state
+        // Initialize pool state with FIXED parameters
         let pool = &mut ctx.accounts.pool;
         pool.token_mint = token_mint_key;
         pool.sol_vault = sol_vault_pda;
         pool.token_vault = token_vault_pda;
-        pool.sol_reserve = initial_sol_amount;
-        pool.token_reserve = initial_token_amount;
+
+        // Real reserves (actual amounts in vaults)
+        pool.real_sol_reserve = FIXED_INITIAL_SOL;
+        pool.real_token_reserve = FIXED_INITIAL_TOKENS;
+
+        // Virtual reserves (for price calculation) ⭐
+        pool.virtual_sol_reserve = INITIAL_VIRTUAL_SOL_RESERVES + FIXED_INITIAL_SOL;
+        pool.virtual_token_reserve = INITIAL_VIRTUAL_TOKEN_RESERVES;
+
         pool.bump = ctx.bumps.pool;
         pool.is_initialized = true;
 
+        msg!("🚀 Pool initialized with FIXED parameters:");
+        msg!("   Real SOL: {} lamports (0.02 SOL)", FIXED_INITIAL_SOL);
         msg!(
-            "Pool initialized with {} SOL and {} tokens",
-            initial_sol_amount,
-            initial_token_amount
+            "   Real Tokens: {} base units (800M tokens)",
+            FIXED_INITIAL_TOKENS
+        );
+        msg!(
+            "   Virtual SOL: {} lamports (30.02 SOL)",
+            pool.virtual_sol_reserve
+        );
+        msg!(
+            "   Virtual Tokens: {} base units (1.073B tokens)",
+            pool.virtual_token_reserve
         );
 
-        // Transfer tokens FROM minting vault TO pool
+        // Calculate and log initial market cap
+        let initial_market_cap_lamports = pool.virtual_sol_reserve;
         msg!(
-            "Transferring {} tokens from minting vault to pool",
-            initial_token_amount
+            "   Initial Market Cap: {} lamports (~{} SOL)",
+            initial_market_cap_lamports,
+            initial_market_cap_lamports / 1_000_000_000
+        );
+
+        // Transfer FIXED amount of tokens FROM minting vault TO pool
+        msg!(
+            "📦 Transferring {} tokens from vault to pool...",
+            FIXED_INITIAL_TOKENS
         );
 
         let vault_seeds = &[b"vault", token_mint_key.as_ref(), &[ctx.bumps.vault]];
@@ -159,13 +187,18 @@ pub mod meme_launchpad {
                 cpi_accounts,
                 signer_seeds,
             ),
-            initial_token_amount,
+            FIXED_INITIAL_TOKENS,
             9,
         )?;
 
-        msg!("✅ Tokens transferred from vault to pool successfully");
+        msg!("✅ Tokens transferred successfully!");
 
-        // Transfer SOL from initializer to pool
+        // Transfer FIXED amount of SOL from initializer to pool
+        msg!(
+            "💰 Transferring {} lamports (0.02 SOL) from user to pool...",
+            FIXED_INITIAL_SOL
+        );
+
         anchor_lang::system_program::transfer(
             CpiContext::new(
                 ctx.accounts.system_program.to_account_info(),
@@ -174,14 +207,18 @@ pub mod meme_launchpad {
                     to: ctx.accounts.sol_vault.to_account_info(),
                 },
             ),
-            initial_sol_amount,
+            FIXED_INITIAL_SOL,
         )?;
+
+        msg!("✅ SOL transferred successfully!");
 
         emit!(PoolInitialized {
             pool: pool.key(),
             token_mint: token_mint_key,
-            initial_sol: initial_sol_amount,
-            initial_tokens: initial_token_amount,
+            real_sol: FIXED_INITIAL_SOL,
+            real_tokens: FIXED_INITIAL_TOKENS,
+            virtual_sol: pool.virtual_sol_reserve,
+            virtual_tokens: pool.virtual_token_reserve,
         });
 
         Ok(())
@@ -198,33 +235,40 @@ pub mod meme_launchpad {
         require!(sol_amount > 0, AmmError::InvalidAmount);
         require!(pool.is_initialized, AmmError::PoolNotInitialized);
 
-        // Calculate output with fee
+        // Calculate output with fee using VIRTUAL reserves
         let fee_amount = (sol_amount as u128)
             .checked_mul(FEE_NUMERATOR as u128)
             .unwrap()
             .checked_div(FEE_DENOMINATOR as u128)
             .unwrap() as u64;
         let sol_amount_after_fee = sol_amount.checked_sub(fee_amount).unwrap();
+
+        // ⭐ Use VIRTUAL reserves for price calculation
         let token_amount = (sol_amount_after_fee as u128)
-            .checked_mul(pool.token_reserve as u128)
+            .checked_mul(pool.virtual_token_reserve as u128)
             .unwrap()
             .checked_div(
-                (pool.sol_reserve as u128)
+                (pool.virtual_sol_reserve as u128)
                     .checked_add(sol_amount_after_fee as u128)
                     .unwrap(),
             ).unwrap() as u64;
 
         require!(token_amount >= min_token_amount, AmmError::SlippageExceeded);
         require!(
-            token_amount < pool.token_reserve,
+            token_amount < pool.real_token_reserve,
             AmmError::InsufficientLiquidity
         );
 
         msg!(
-            "Swapping {} SOL for {} tokens (fee: {})",
+            "💫 Swapping {} SOL for {} tokens (fee: {})",
             sol_amount,
             token_amount,
             fee_amount
+        );
+        msg!(
+            "   Price: {} virtual SOL / {} virtual tokens",
+            pool.virtual_sol_reserve,
+            pool.virtual_token_reserve
         );
 
         // Transfer SOL
@@ -261,9 +305,22 @@ pub mod meme_launchpad {
             9,
         )?;
 
-        // Update reserves
-        pool.sol_reserve = pool.sol_reserve.checked_add(sol_amount).unwrap();
-        pool.token_reserve = pool.token_reserve.checked_sub(token_amount).unwrap();
+        // Update BOTH real and virtual reserves
+        pool.real_sol_reserve = pool.real_sol_reserve.checked_add(sol_amount).unwrap();
+        pool.real_token_reserve = pool.real_token_reserve.checked_sub(token_amount).unwrap();
+        pool.virtual_sol_reserve = pool.virtual_sol_reserve.checked_add(sol_amount).unwrap();
+        pool.virtual_token_reserve = pool
+            .virtual_token_reserve
+            .checked_sub(token_amount)
+            .unwrap();
+
+        msg!(
+            "📊 New reserves - Real: {} SOL / {} tokens, Virtual: {} SOL / {} tokens",
+            pool.real_sol_reserve,
+            pool.real_token_reserve,
+            pool.virtual_sol_reserve,
+            pool.virtual_token_reserve
+        );
 
         emit!(SwapExecuted {
             pool: pool_key,
@@ -277,7 +334,6 @@ pub mod meme_launchpad {
         Ok(())
     }
 
-    // ✅ FIXED: Proper SOL transfer from vault to user using invoke_signed
     pub fn swap_tokens_to_sol(
         ctx: Context<SwapTokensForSol>,
         token_amount: u64,
@@ -288,30 +344,32 @@ pub mod meme_launchpad {
         require!(token_amount > 0, AmmError::InvalidAmount);
         require!(pool.is_initialized, AmmError::PoolNotInitialized);
 
-        // Calculate output with fee
+        // Calculate output with fee using VIRTUAL reserves
         let fee_amount = (token_amount as u128)
             .checked_mul(FEE_NUMERATOR as u128)
             .unwrap()
             .checked_div(FEE_DENOMINATOR as u128)
             .unwrap() as u64;
         let token_amount_after_fee = token_amount.checked_sub(fee_amount).unwrap();
+
+        // ⭐ Use VIRTUAL reserves for price calculation
         let sol_amount = (token_amount_after_fee as u128)
-            .checked_mul(pool.sol_reserve as u128)
+            .checked_mul(pool.virtual_sol_reserve as u128)
             .unwrap()
             .checked_div(
-                (pool.token_reserve as u128)
+                (pool.virtual_token_reserve as u128)
                     .checked_add(token_amount_after_fee as u128)
                     .unwrap(),
             ).unwrap() as u64;
 
         require!(sol_amount >= min_sol_amount, AmmError::SlippageExceeded);
         require!(
-            sol_amount < pool.sol_reserve,
+            sol_amount < pool.real_sol_reserve,
             AmmError::InsufficientLiquidity
         );
 
         msg!(
-            "Swapping {} tokens for {} SOL (fee: {})",
+            "💫 Swapping {} tokens for {} SOL (fee: {})",
             token_amount,
             sol_amount,
             fee_amount
@@ -332,34 +390,20 @@ pub mod meme_launchpad {
             9,
         )?;
 
-        // ✅ FIXED: Transfer SOL from vault to user using proper system program CPI
-        // The sol_vault is a PDA, so we need to use the pool's authority
+        // Transfer SOL from vault to user using proper system program CPI
         let token_mint_key = pool.token_mint;
         let pool_bump = pool.bump;
-        
-        // Create PDA signer seeds for the pool
-        let pool_seeds = &[
-            AMM_POOL_SEED,
-            token_mint_key.as_ref(),
-            &[pool_bump],
-        ];
-        let pool_signer = &[&pool_seeds[..]];
 
-        // However, sol_vault is derived differently, so we need its seeds
-        let sol_vault_seeds = &[
-            POOL_SOL_VAULT_SEED,
-            token_mint_key.as_ref(),
-        ];
-        let (sol_vault_pda, sol_vault_bump) = Pubkey::find_program_address(sol_vault_seeds, ctx.program_id);
-        
-        // Verify we have the right vault
+        let sol_vault_seeds = &[POOL_SOL_VAULT_SEED, token_mint_key.as_ref()];
+        let (sol_vault_pda, sol_vault_bump) =
+            Pubkey::find_program_address(sol_vault_seeds, ctx.program_id);
+
         require_keys_eq!(
             sol_vault_pda,
             ctx.accounts.sol_vault.key(),
             AmmError::InvalidVault
         );
 
-        // Create vault signer seeds
         let vault_signer_seeds = &[
             POOL_SOL_VAULT_SEED,
             token_mint_key.as_ref(),
@@ -367,7 +411,6 @@ pub mod meme_launchpad {
         ];
         let vault_signer = &[&vault_signer_seeds[..]];
 
-        // Transfer SOL from sol_vault to user using system program with PDA signing
         system_program::transfer(
             CpiContext::new_with_signer(
                 ctx.accounts.system_program.to_account_info(),
@@ -380,12 +423,25 @@ pub mod meme_launchpad {
             sol_amount,
         )?;
 
-        // Update reserves
-        pool.sol_reserve = pool.sol_reserve.checked_sub(sol_amount).unwrap();
-        pool.token_reserve = pool.token_reserve.checked_add(token_amount).unwrap();
+        // Update BOTH real and virtual reserves
+        pool.real_sol_reserve = pool.real_sol_reserve.checked_sub(sol_amount).unwrap();
+        pool.real_token_reserve = pool.real_token_reserve.checked_add(token_amount).unwrap();
+        pool.virtual_sol_reserve = pool.virtual_sol_reserve.checked_sub(sol_amount).unwrap();
+        pool.virtual_token_reserve = pool
+            .virtual_token_reserve
+            .checked_add(token_amount)
+            .unwrap();
 
         let pool_key = pool.key();
         let user_key = ctx.accounts.user.key();
+
+        msg!(
+            "📊 New reserves - Real: {} SOL / {} tokens, Virtual: {} SOL / {} tokens",
+            pool.real_sol_reserve,
+            pool.real_token_reserve,
+            pool.virtual_sol_reserve,
+            pool.virtual_token_reserve
+        );
 
         emit!(SwapExecuted {
             pool: pool_key,
@@ -416,30 +472,16 @@ fn transfer_native_sol_fee(accounts: &MintMemeToken, fee_lamports: u64) -> Resul
 }
 
 fn distribute_supply(ctx: &Context<MintMemeToken>) -> Result<()> {
-    const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000;
-    // 0.1% to minter
-    let minter_share = TOTAL_SUPPLY / 1000;
-    let vault_share = TOTAL_SUPPLY - minter_share;
+    const TOTAL_SUPPLY: u64 = 1_000_000_000_000_000_000; // 1 billion tokens
+
+    // 100% to vault, 0% to minter (fair launch like pump.fun)
+    let vault_share = TOTAL_SUPPLY;
 
     let mint_key = ctx.accounts.mint.key();
     let vault_seeds: &[&[u8]] = &[b"vault", mint_key.as_ref(), &[ctx.bumps.vault]];
     let signer_seeds = &[vault_seeds];
 
-    // Mint to minter
-    token::mint_to(
-        CpiContext::new_with_signer(
-            ctx.accounts.token_program.to_account_info(),
-            MintTo {
-                mint: ctx.accounts.mint.to_account_info(),
-                to: ctx.accounts.minter_token_account.to_account_info(),
-                authority: ctx.accounts.vault.to_account_info(),
-            },
-            signer_seeds,
-        ),
-        minter_share,
-    )?;
-
-    // Mint to vault
+    // Mint 100% to vault
     token::mint_to(
         CpiContext::new_with_signer(
             ctx.accounts.token_program.to_account_info(),
@@ -451,7 +493,11 @@ fn distribute_supply(ctx: &Context<MintMemeToken>) -> Result<()> {
             signer_seeds,
         ),
         vault_share,
-    )
+    )?;
+
+    msg!("✅ 100% of supply (1B tokens) minted to vault (fair launch)");
+
+    Ok(())
 }
 
 // ==================== ACCOUNT STRUCTS ====================
@@ -478,8 +524,6 @@ pub struct MintMemeToken<'info> {
     pub mint: InterfaceAccount<'info, Mint>,
     #[account(seeds = [b"vault", mint.key().as_ref()], bump)]
     pub vault: UncheckedAccount<'info>,
-    #[account(init_if_needed, payer = minter, associated_token::mint = mint, associated_token::authority = minter, associated_token::token_program = token_program)]
-    pub minter_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(init_if_needed, payer = minter, associated_token::mint = mint, associated_token::authority = vault, associated_token::token_program = token_program)]
     pub vault_token_account: InterfaceAccount<'info, TokenAccount>,
     #[account(mut, seeds = [b"fee_vault"], bump)]
@@ -618,14 +662,22 @@ pub struct AmmPool {
     pub token_mint: Pubkey,
     pub sol_vault: Pubkey,
     pub token_vault: Pubkey,
-    pub sol_reserve: u64,
-    pub token_reserve: u64,
+
+    // Real reserves (actual amounts in vaults)
+    pub real_sol_reserve: u64,
+    pub real_token_reserve: u64,
+
+    // Virtual reserves (for price calculation) ⭐
+    pub virtual_sol_reserve: u64,
+    pub virtual_token_reserve: u64,
+
     pub bump: u8,
     pub is_initialized: bool,
 }
 
 impl AmmPool {
-    pub const LEN: usize = 32 + 32 + 32 + 8 + 8 + 1 + 1;
+    // Updated size: 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1 = 130 bytes
+    pub const LEN: usize = 32 + 32 + 32 + 8 + 8 + 8 + 8 + 1 + 1;
 }
 
 // ==================== EVENTS ====================
@@ -648,8 +700,10 @@ pub struct Minted {
 pub struct PoolInitialized {
     pub pool: Pubkey,
     pub token_mint: Pubkey,
-    pub initial_sol: u64,
-    pub initial_tokens: u64,
+    pub real_sol: u64,
+    pub real_tokens: u64,
+    pub virtual_sol: u64,
+    pub virtual_tokens: u64,
 }
 
 #[event]
