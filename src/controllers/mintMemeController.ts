@@ -2,6 +2,7 @@ import { Request, Response } from "express";
 import { PublicKey } from "@solana/web3.js";
 import { stringToMemeId } from "../helpers";
 import {
+  checkProtocolStateStatus,
   createInitializeProtocolStateTransaction,
   createMintMemeTokenTransaction,
   createCreateAssociatedTokenAccountTransaction,
@@ -31,6 +32,22 @@ export async function initializeProtocolTxController(req: Request, res: Response
 
 // ❌ REMOVED: Reset Protocol State controller - the service function no longer exists
 // The mint fee is now fixed at 0.01 SOL and cannot be changed
+
+export async function checkProtocolStateController(req: Request, res: Response) {
+  try {
+    const status = await checkProtocolStateStatus();
+    return res.json({
+      success: true,
+      data: status,
+    });
+  } catch (error: any) {
+    console.error('/protocol-state error:', error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Failed to check protocol state',
+    });
+  }
+}
 
 export async function mintMemeTxController(req: Request, res: Response) {
   try {
