@@ -3,11 +3,14 @@ import {
   PublicKey,
   SystemProgram,
   LAMPORTS_PER_SOL,
+  Transaction,
 } from "@solana/web3.js";
 import {
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   getAssociatedTokenAddressSync,
+  getAssociatedTokenAddress,
+  createAssociatedTokenAccountInstruction,
 } from "@solana/spl-token";
 import { getProgram } from "../utils/getProgram";
 import {
@@ -121,19 +124,19 @@ export function calculateSellOutput(
 
 /**
  * Initialize AMM Pool (creates bonding curve for trading)
- * ⚠️ UPDATED: No longer creates LP tokens - just sets up trading pool
+ * ⚠️ UPDATED: Fixed parameters (0.02 SOL + 800M tokens) - no parameters needed!
+ * The Rust program uses FIXED_INITIAL_SOL (0.02 SOL) and FIXED_INITIAL_TOKENS (800M tokens)
  */
 export async function createInitializeAmmPoolTransaction(
   initializerPublicKey: PublicKey,
   tokenMintAddress: string,
-  initialSolAmount: number, // in SOL (e.g., 0.02)
-  initialTokenAmount: number | string, // in human-readable tokens (e.g., 800_000_000)
 ) {
   const { program, connection } = getProgram();
   const tokenMint = new PublicKey(tokenMintAddress);
 
-  const initialSolLamports = Math.floor(initialSolAmount * LAMPORTS_PER_SOL);
-  const initialTokenBaseUnits = toBaseUnits(initialTokenAmount, 9);
+  // Fixed constants from Rust program
+  const FIXED_INITIAL_SOL = 20_000_000; // 0.02 SOL in lamports
+  const FIXED_INITIAL_TOKENS = 800_000_000_000_000_000; // 800M tokens in base units
 
   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
@@ -155,11 +158,9 @@ export async function createInitializeAmmPoolTransaction(
   try {
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
+    // ⚠️ IMPORTANT: initializeAmmPool() takes NO parameters - it uses fixed values from the contract
     const transaction = await program.methods
-      .initializeAmmPool(
-        new anchor.BN(initialSolLamports),
-        new anchor.BN(initialTokenBaseUnits),
-      )
+      .initializeAmmPool()
       .accounts({
         initializer: initializerPublicKey,
         tokenMint,
@@ -177,9 +178,11 @@ export async function createInitializeAmmPoolTransaction(
     transaction.feePayer = initializerPublicKey;
     transaction.recentBlockhash = blockhash;
 
-    // Calculate initial price
-    const initialPrice =
-      initialSolLamports / (Number(initialTokenBaseUnits) / 1e9);
+    // Calculate initial price using virtual reserves (for display purposes)
+    const INITIAL_VIRTUAL_SOL_RESERVES = 30_000_000_000; // 30 SOL
+    const INITIAL_VIRTUAL_TOKEN_RESERVES = 1_073_000_000_000_000_000; // 1.073B tokens
+    const virtualSolReserve = INITIAL_VIRTUAL_SOL_RESERVES + FIXED_INITIAL_SOL;
+    const initialPrice = virtualSolReserve / (Number(INITIAL_VIRTUAL_TOKEN_RESERVES) / 1e9);
 
     return {
       success: true,
@@ -196,10 +199,10 @@ export async function createInitializeAmmPoolTransaction(
         tokenMint: tokenMint.toString(),
       },
       metadata: {
-        initialSolAmount: `${initialSolAmount} SOL (${initialSolLamports} lamports)`,
-        initialTokenAmount: `${initialTokenAmount} tokens (${initialTokenBaseUnits} base units)`,
-        initialPrice: `${initialPrice.toExponential(8)} SOL per token`,
-        note: "No LP tokens issued - this is a bonding curve",
+        initialSolAmount: `0.02 SOL (${FIXED_INITIAL_SOL} lamports) - FIXED`,
+        initialTokenAmount: `800,000,000 tokens (${FIXED_INITIAL_TOKENS} base units) - FIXED`,
+        initialPrice: `${initialPrice.toExponential(8)} SOL per token (using virtual reserves)`,
+        note: "Pool uses fixed parameters (pump.fun style). No LP tokens issued - this is a bonding curve.",
       },
     };
   } catch (error: any) {
@@ -218,37 +221,70 @@ export async function createInitializeAmmPoolTransaction(
 /**
  * Buy Tokens (Swap SOL to Tokens)
  * User sends SOL → receives tokens based on bonding curve
+ * ⚠️ UPDATED: minTokenAmount is now optional (defaults to 0 = no slippage protection)
+ * ⚠️ UPDATED: Automatically creates token account if it doesn't exist
  */
 export async function createSwapSolForTokensTransaction(
   userPublicKey: PublicKey,
   tokenMintAddress: string,
   solAmount: number, // in SOL (e.g., 0.01)
-  minTokenAmount: number | string, // in human-readable tokens (slippage protection)
-) {
+  minTokenAmount?: number, // ⭐ Optional parameter - in human-readable tokens (slippage protection)
+): Promise<{
+  success: boolean;
+  transaction?: string;
+  accounts?: any;
+  metadata?: any;
+  message: string;
+}> {
   const { program, connection } = getProgram();
   const tokenMint = new PublicKey(tokenMintAddress);
-  const solLamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
-  const minTokenBaseUnits = toBaseUnits(minTokenAmount, 9);
 
+  // Get pool and vault PDAs
   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
+  // Get user's token account address
+  const userTokenAccount = await getAssociatedTokenAddress(
     tokenMint,
     userPublicKey,
     false,
     TOKEN_2022_PROGRAM_ID,
   );
 
+  // Check if token account exists
+  const accountInfo = await connection.getAccountInfo(userTokenAccount);
+
+  // Build transaction
+  const transaction = new Transaction();
+
+  // Add create ATA instruction if needed
+  if (!accountInfo) {
+    console.log("🔧 Creating token account...");
+    const createAtaIx = createAssociatedTokenAccountInstruction(
+      userPublicKey,
+      userTokenAccount,
+      userPublicKey,
+      tokenMint,
+      TOKEN_2022_PROGRAM_ID,
+    );
+    transaction.add(createAtaIx);
+  }
+
+  // Convert amounts to base units
+  const solLamports = new anchor.BN(Math.floor(solAmount * LAMPORTS_PER_SOL));
+
+  // ⭐ Use provided minTokenAmount or default to 0 (no slippage check)
+  const minTokensBaseUnits = minTokenAmount
+    ? new anchor.BN(Math.floor(minTokenAmount * 1e9))
+    : new anchor.BN(0); // 0 = no slippage protection
+
   try {
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    const transaction = await program.methods
-      .swapSolToTokens(
-        new anchor.BN(solLamports),
-        new anchor.BN(minTokenBaseUnits),
-      )
+    // Create swap instruction
+    const swapIx = await program.methods
+      .swapSolToTokens(solLamports, minTokensBaseUnits)
       .accounts({
         user: userPublicKey,
         pool: poolPda,
@@ -259,17 +295,23 @@ export async function createSwapSolForTokensTransaction(
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
-    transaction.feePayer = userPublicKey;
+    transaction.add(swapIx);
+
+    // Set recent blockhash and fee payer
     transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Serialize
+    const serializedTx = transaction.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false,
+    });
 
     return {
       success: true,
-      message: "Buy tokens transaction created successfully!",
-      transaction: transaction
-        .serialize({ requireAllSignatures: false })
-        .toString("base64"),
+      transaction: serializedTx.toString("base64"),
       accounts: {
         pool: poolPda.toString(),
         tokenMint: tokenMint.toString(),
@@ -278,16 +320,24 @@ export async function createSwapSolForTokensTransaction(
         userTokenAccount: userTokenAccount.toString(),
       },
       metadata: {
-        solAmount: `${solAmount} SOL (${solLamports} lamports)`,
-        minTokenAmount: `${minTokenAmount} tokens (${minTokenBaseUnits} base units)`,
+        solAmount: `${solAmount} SOL (${solLamports.toString()} lamports)`,
+        minTokenAmount: minTokenAmount
+          ? `${minTokenAmount} tokens (${minTokensBaseUnits.toString()} base units)`
+          : "No minimum (pump.fun mode)",
+        slippageProtection: minTokenAmount ? "ENABLED" : "DISABLED",
         fee: "0.3% of SOL input",
         action: "BUY",
+        accountCreated: !accountInfo,
       },
+      message: !accountInfo
+        ? "Buy transaction created (includes token account creation)"
+        : "Buy transaction created successfully!",
     };
   } catch (error: any) {
+    console.error("Error creating buy transaction:", error);
     return {
       success: false,
-      message: `Error creating buy tokens transaction: ${error.message || error}`,
+      message: error.message || "Failed to create buy transaction",
     };
   }
 }
@@ -295,37 +345,50 @@ export async function createSwapSolForTokensTransaction(
 /**
  * Sell Tokens (Swap Tokens to SOL)
  * User sends tokens → receives SOL based on bonding curve
+ * ⚠️ UPDATED: minSolAmount is now optional (defaults to 0 = no slippage protection)
  */
 export async function createSwapTokensForSolTransaction(
   userPublicKey: PublicKey,
   tokenMintAddress: string,
   tokenAmount: number | string, // in human-readable tokens (e.g., 1000)
-  minSolAmount: number, // in SOL (slippage protection, e.g., 0.001)
-) {
+  minSolAmount?: number, // ⭐ Optional parameter - in SOL (slippage protection, e.g., 0.001)
+): Promise<{
+  success: boolean;
+  transaction?: string;
+  accounts?: any;
+  metadata?: any;
+  message: string;
+}> {
   const { program, connection } = getProgram();
   const tokenMint = new PublicKey(tokenMintAddress);
-  const tokenBaseUnits = toBaseUnits(tokenAmount, 9);
-  const minSolLamports = Math.floor(minSolAmount * LAMPORTS_PER_SOL);
 
+  // Get pool and vault PDAs
   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
-  const userTokenAccount = getAssociatedTokenAddressSync(
+  // Get user's token account
+  const userTokenAccount = await getAssociatedTokenAddress(
     tokenMint,
     userPublicKey,
     false,
     TOKEN_2022_PROGRAM_ID,
   );
 
+  // Convert amounts to base units
+  const tokenBaseUnits = toBaseUnits(tokenAmount, 9);
+
+  // ⭐ Use provided minSolAmount or default to 0 (no slippage check)
+  const minSolLamports = minSolAmount
+    ? new anchor.BN(Math.floor(minSolAmount * LAMPORTS_PER_SOL))
+    : new anchor.BN(0); // 0 = no slippage protection
+
   try {
     const { blockhash } = await connection.getLatestBlockhash("finalized");
 
-    const transaction = await program.methods
-      .swapTokensToSol(
-        new anchor.BN(tokenBaseUnits),
-        new anchor.BN(minSolLamports),
-      )
+    // Create swap instruction
+    const swapIx = await program.methods
+      .swapTokensToSol(new anchor.BN(tokenBaseUnits), minSolLamports)
       .accounts({
         user: userPublicKey,
         pool: poolPda,
@@ -336,17 +399,23 @@ export async function createSwapTokensForSolTransaction(
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
-      .transaction();
+      .instruction();
 
-    transaction.feePayer = userPublicKey;
+    const transaction = new Transaction().add(swapIx);
+
+    // Set recent blockhash and fee payer
     transaction.recentBlockhash = blockhash;
+    transaction.feePayer = userPublicKey;
+
+    // Serialize
+    const serializedTx = transaction.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false,
+    });
 
     return {
       success: true,
-      message: "Sell tokens transaction created successfully!",
-      transaction: transaction
-        .serialize({ requireAllSignatures: false })
-        .toString("base64"),
+      transaction: serializedTx.toString("base64"),
       accounts: {
         pool: poolPda.toString(),
         tokenMint: tokenMint.toString(),
@@ -356,15 +425,20 @@ export async function createSwapTokensForSolTransaction(
       },
       metadata: {
         tokenAmount: `${tokenAmount} tokens (${tokenBaseUnits} base units)`,
-        minSolAmount: `${minSolAmount} SOL (${minSolLamports} lamports)`,
+        minSolAmount: minSolAmount
+          ? `${minSolAmount} SOL (${minSolLamports.toString()} lamports)`
+          : "No minimum (pump.fun mode)",
+        slippageProtection: minSolAmount ? "ENABLED" : "DISABLED",
         fee: "0.3% of token input",
         action: "SELL",
       },
+      message: "Sell transaction created successfully!",
     };
   } catch (error: any) {
+    console.error("Error creating sell transaction:", error);
     return {
       success: false,
-      message: `Error creating sell tokens transaction: ${error.message || error}`,
+      message: error.message || "Failed to create sell transaction",
     };
   }
 }
