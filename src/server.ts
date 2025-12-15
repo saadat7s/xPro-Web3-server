@@ -57,14 +57,16 @@ app.use((err: Error, req: Request, res: Response, next: any) => {
   });
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log('========================================');
-  console.log(`🚀 Server: http://localhost:${PORT}`);
-  console.log(`📚 API Docs: http://localhost:${PORT}/api-docs`);
-  console.log(`🏥 Health: http://localhost:${PORT}/health`);
-  console.log('========================================');
-});
+// Start Server (only in non-serverless environments)
+if (process.env.VERCEL !== '1') {
+  app.listen(PORT, () => {
+    console.log('========================================');
+    console.log(`🚀 Server: http://localhost:${PORT}`);
+    console.log(`📚 API Docs: http://localhost:${PORT}/api-docs`);
+    console.log(`🏥 Health: http://localhost:${PORT}/health`);
+    console.log('========================================');
+  });
+}
 
 export default app;
   
