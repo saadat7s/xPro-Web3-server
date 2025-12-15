@@ -1,5 +1,6 @@
 import { Router } from "express";
 import {
+  checkProtocolStateController,
   initializeProtocolTxController,
   mintMemeTxController,
   createAtaTxController,
@@ -14,6 +15,9 @@ import {
 } from "../controllers/mintDetailsController";
 
 const router = Router();
+
+// Protocol state endpoints
+router.get("/protocol-state", checkProtocolStateController);
 
 // Unsigned transaction endpoints
 router.post("/tx/initialize-protocol", initializeProtocolTxController);
