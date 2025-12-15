@@ -2,25 +2,21 @@ import { Request, Response } from "express";
 import { PublicKey } from "@solana/web3.js";
 import {
   createInitializeAmmPoolTransaction,
-  createAddLiquidityTransaction,
-  // createRemoveLiquidityTransaction,
-  // createSwapSolForTokensTransaction,
-  // createSwapTokensForSolTransaction,
+  createSwapSolForTokensTransaction,
+  createSwapTokensForSolTransaction,
 } from "../services/poolCreationService";
 import { getPoolInfo } from "../ammService";
-import { calculateAddLiquidity, getAddLiquidityParams, getAmmPool } from "../mintDetails";
+import { getAmmPool } from "../mintDetails";
 
 export async function initializeAmmPoolTxController(req: Request, res: Response) {
   try {
-    const { initializer, tokenMint, initialSolAmount, initialTokenAmount } = req.body as {
+    const { initializer, tokenMint } = req.body as {
       initializer: string;
       tokenMint: string;
-      initialSolAmount: number;
-      initialTokenAmount: number | string;
     };
 
-    if (!initializer || !tokenMint || initialSolAmount == null || initialTokenAmount == null) {
-      return res.status(400).json({ success: false, message: "initializer, tokenMint, initialSolAmount, initialTokenAmount are required" });
+    if (!initializer || !tokenMint) {
+      return res.status(400).json({ success: false, message: "initializer and tokenMint are required" });
     }
 
     let initializerPk: PublicKey;
@@ -30,40 +26,17 @@ export async function initializeAmmPoolTxController(req: Request, res: Response)
       return res.status(400).json({ success: false, message: "Invalid initializer public key" });
     }
 
-    const result = await createInitializeAmmPoolTransaction(initializerPk, tokenMint, initialSolAmount, initialTokenAmount);
+    // ⚠️ UPDATED: No longer accepts initialSolAmount and initialTokenAmount
+    // The Rust program uses FIXED parameters: 0.02 SOL + 800M tokens
+    const result = await createInitializeAmmPoolTransaction(initializerPk, tokenMint);
     return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
     return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }
 
-export async function addLiquidityTxController(req: Request, res: Response) {
-  try {
-    const { user, tokenMint, solAmount, maxTokenAmount, minLpAmount } = req.body as {
-      user: string;
-      tokenMint: string;
-      solAmount: number;
-      maxTokenAmount: number | string;
-      minLpAmount?: number | string;
-    };
-
-    if (!user || !tokenMint || solAmount == null || maxTokenAmount == null) {
-      return res.status(400).json({ success: false, message: "user, tokenMint, solAmount, maxTokenAmount are required" });
-    }
-
-    let userPk: PublicKey;
-    try {
-      userPk = new PublicKey(user);
-    } catch (e) {
-      return res.status(400).json({ success: false, message: "Invalid user public key" });
-    }
-
-    const result = await createAddLiquidityTransaction(userPk, tokenMint, solAmount, maxTokenAmount, minLpAmount ?? 0);
-    return res.status(result.success ? 200 : 500).json(result);
-  } catch (error: any) {
-    return res.status(500).json({ success: false, message: error?.message || String(error) });
-  }
-}
+// ❌ REMOVED: Add Liquidity controller - the service function no longer exists
+// The bonding curve model doesn't use LP tokens - users buy/sell directly
 
 export async function getPoolInfoController(req: Request, res: Response) {
   try {
@@ -123,12 +96,13 @@ export async function getAmmPoolController(req: Request, res: Response) {
       success: true,
       data: {
         tokenMint: ammPool.tokenMint.toBase58(),
-        lpMint: ammPool.lpMint.toBase58(),
         solVault: ammPool.solVault.toBase58(),
         tokenVault: ammPool.tokenVault.toBase58(),
-        solReserve: ammPool.solReserve.toString(),
-        tokenReserve: ammPool.tokenReserve.toString(),
-        lpSupply: ammPool.lpSupply.toString(),
+        solReserve: ammPool.solReserve.toString(), // Real SOL reserve
+        tokenReserve: ammPool.tokenReserve.toString(), // Real token reserve
+        virtualSolReserve: ammPool.virtualSolReserve.toString(), // Virtual SOL reserve (for market cap)
+        virtualTokenReserve: ammPool.virtualTokenReserve.toString(), // Virtual token reserve
+        currentPrice: ammPool.currentPrice,
         bump: ammPool.bump,
         isInitialized: ammPool.isInitialized,
       },
@@ -142,184 +116,72 @@ export async function getAmmPoolController(req: Request, res: Response) {
   }
 }
 
-// export async function removeLiquidityTxController(req: Request, res: Response) {
-//   try {
-//     const { user, tokenMint, lpAmount, minSolAmount, minTokenAmount } = req.body as {
-//       user: string;
-//       tokenMint: string;
-//       lpAmount: number | string;
-//       minSolAmount?: number;
-//       minTokenAmount?: number | string;
-//     };
+// ❌ REMOVED: Remove Liquidity controller - the service function no longer exists
+// The bonding curve model doesn't use LP tokens
 
-//     if (!user || !tokenMint || lpAmount == null) {
-//       return res.status(400).json({ success: false, message: "user, tokenMint, lpAmount are required" });
-//     }
-
-//     let userPk: PublicKey;
-//     try {
-//       userPk = new PublicKey(user);
-//     } catch (e) {
-//       return res.status(400).json({ success: false, message: "Invalid user public key" });
-//     }
-
-//     const result = await createRemoveLiquidityTransaction(userPk, tokenMint, lpAmount, minSolAmount ?? 0, minTokenAmount ?? 0);
-//     return res.status(result.success ? 200 : 500).json(result);
-//   } catch (error: any) {
-//     return res.status(500).json({ success: false, message: error?.message || String(error) });
-//   }
-// }
-
-// export async function swapSolForTokensTxController(req: Request, res: Response) {
-//   try {
-//     const { user, tokenMint, solAmount, minTokenAmount } = req.body as {
-//       user: string;
-//       tokenMint: string;
-//       solAmount: number;
-//       minTokenAmount: number | string;
-//     };
-
-//     if (!user || !tokenMint || solAmount == null || minTokenAmount == null) {
-//       return res.status(400).json({ success: false, message: "user, tokenMint, solAmount, minTokenAmount are required" });
-//     }
-
-//     let userPk: PublicKey;
-//     try {
-//       userPk = new PublicKey(user);
-//     } catch (e) {
-//       return res.status(400).json({ success: false, message: "Invalid user public key" });
-//     }
-
-//     const result = await createSwapSolForTokensTransaction(userPk, tokenMint, solAmount, minTokenAmount);
-//     return res.status(result.success ? 200 : 500).json(result);
-//   } catch (error: any) {
-//     return res.status(500).json({ success: false, message: error?.message || String(error) });
-//   }
-// }
-
-// export async function swapTokensForSolTxController(req: Request, res: Response) {
-//   try {
-//     const { user, tokenMint, tokenAmount, minSolAmount } = req.body as {
-//       user: string;
-//       tokenMint: string;
-//       tokenAmount: number | string;
-//       minSolAmount: number;
-//     };
-
-//     if (!user || !tokenMint || tokenAmount == null || minSolAmount == null) {
-//       return res.status(400).json({ success: false, message: "user, tokenMint, tokenAmount, minSolAmount are required" });
-//     }
-
-//     let userPk: PublicKey;
-//     try {
-//       userPk = new PublicKey(user);
-//     } catch (e) {
-//       return res.status(400).json({ success: false, message: "Invalid user public key" });
-//     }
-
-//     const result = await createSwapTokensForSolTransaction(userPk, tokenMint, tokenAmount, minSolAmount);
-//     return res.status(result.success ? 200 : 500).json(result);
-//   } catch (error: any) {
-//     return res.status(500).json({ success: false, message: error?.message || String(error) });
-//   }
-// }
-
-
-
-
-
-
-/**
- * Full calculation endpoint - gives user complete transparency
- * GET /amm/calculate-add-liquidity?tokenMint=xxx&solAmount=0.01&slippage=1
- */
-export async function calculateAddLiquidityController(req: Request, res: Response) {
+export async function swapSolForTokensTxController(req: Request, res: Response) {
   try {
-    const { tokenMint, solAmount, slippage, userCurrentLp } = req.query as {
+    const { user, tokenMint, solAmount, minTokenAmount } = req.body as {
+      user: string;
       tokenMint: string;
-      solAmount: string;
-      slippage?: string;
-      userCurrentLp?: string;
+      solAmount: number;
+      minTokenAmount?: number; // ⭐ Optional parameter
     };
 
-    if (!tokenMint || !solAmount) {
-      return res.status(400).json({
-        success: false,
-        message: "tokenMint and solAmount are required",
-      });
+    if (!user || !tokenMint || solAmount == null) {
+      return res.status(400).json({ success: false, message: "user, tokenMint, and solAmount are required" });
     }
 
-    const solAmountNum = parseFloat(solAmount);
-    const slippageNum = slippage ? parseFloat(slippage) : 1;
-    const userLpNum = userCurrentLp ? parseFloat(userCurrentLp) : 0;
-
-    const calculation = await calculateAddLiquidity(
-      tokenMint,
-      solAmountNum,
-      slippageNum,
-      userLpNum
-    );
-
-    if (!calculation) {
-      return res.status(404).json({
-        success: false,
-        message: "Pool not found or not initialized",
-      });
+    let userPk: PublicKey;
+    try {
+      userPk = new PublicKey(user);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: "Invalid user public key" });
     }
 
-    return res.json({
-      success: true,
-      data: calculation,
-    });
+    // ⚠️ UPDATED: minTokenAmount is now optional (defaults to undefined = no slippage protection)
+    const result = await createSwapSolForTokensTransaction(userPk, tokenMint, solAmount, minTokenAmount);
+    return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
-    console.error("/calculate-add-liquidity error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error?.message || "Failed to calculate add liquidity",
-    });
+    return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }
 
-/**
- * Quick params endpoint - just returns the values needed for transaction
- * GET /amm/add-liquidity-params?tokenMint=xxx&solAmount=0.01&slippage=1
- */
-export async function getAddLiquidityParamsController(req: Request, res: Response) {
+export async function swapTokensForSolTxController(req: Request, res: Response) {
   try {
-    const { tokenMint, solAmount, slippage } = req.query as {
+    const { user, tokenMint, tokenAmount, minSolAmount } = req.body as {
+      user: string;
       tokenMint: string;
-      solAmount: string;
-      slippage?: string;
+      tokenAmount: number | string;
+      minSolAmount?: number; // ⭐ Optional parameter
     };
 
-    if (!tokenMint || !solAmount) {
-      return res.status(400).json({
-        success: false,
-        message: "tokenMint and solAmount are required",
-      });
+    if (!user || !tokenMint || tokenAmount == null) {
+      return res.status(400).json({ success: false, message: "user, tokenMint, and tokenAmount are required" });
     }
 
-    const solAmountNum = parseFloat(solAmount);
-    const slippageNum = slippage ? parseFloat(slippage) : 1;
-
-    const params = await getAddLiquidityParams(tokenMint, solAmountNum, slippageNum);
-
-    if (!params) {
-      return res.status(404).json({
-        success: false,
-        message: "Pool not found or not initialized",
-      });
+    let userPk: PublicKey;
+    try {
+      userPk = new PublicKey(user);
+    } catch (e) {
+      return res.status(400).json({ success: false, message: "Invalid user public key" });
     }
 
-    return res.json({
-      success: true,
-      data: params,
-    });
+    // ⚠️ UPDATED: minSolAmount is now optional (defaults to undefined = no slippage protection)
+    const result = await createSwapTokensForSolTransaction(userPk, tokenMint, tokenAmount, minSolAmount);
+    return res.status(result.success ? 200 : 500).json(result);
   } catch (error: any) {
-    console.error("/add-liquidity-params error:", error);
-    return res.status(500).json({
-      success: false,
-      message: error?.message || "Failed to get add liquidity params",
-    });
+    return res.status(500).json({ success: false, message: error?.message || String(error) });
   }
 }
+
+
+
+
+
+
+// ❌ REMOVED: calculateAddLiquidityController - liquidity functions no longer exist
+// The bonding curve model doesn't use LP tokens - users buy/sell directly
+
+// ❌ REMOVED: getAddLiquidityParamsController - liquidity functions no longer exist
+// The bonding curve model doesn't use LP tokens - users buy/sell directly

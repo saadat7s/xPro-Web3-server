@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
+  checkProtocolStateController,
   initializeProtocolTxController,
-  resetProtocolTxController,
   mintMemeTxController,
   createAtaTxController,
 } from "../controllers/mintMemeController";
@@ -16,9 +16,11 @@ import {
 
 const router = Router();
 
+// Protocol state endpoints
+router.get("/protocol-state", checkProtocolStateController);
+
 // Unsigned transaction endpoints
 router.post("/tx/initialize-protocol", initializeProtocolTxController);
-router.post("/tx/reset-protocol", resetProtocolTxController);
 router.post("/tx/mint-meme", mintMemeTxController);
 router.post("/tx/create-ata", createAtaTxController);
 

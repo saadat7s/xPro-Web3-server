@@ -11,20 +11,21 @@ import {
 } from "@solana/spl-token";
 import { getProgram } from "./service";
 
+// ⚠️ UPDATED: Removed lpMint and lpSupply - bonding curve model doesn't use LP tokens
 interface AmmPool {
   isInitialized: boolean;
   tokenMint: PublicKey;
-  lpMint: PublicKey;
   solVault: PublicKey;
   tokenVault: PublicKey;
-  solReserve: anchor.BN;
-  tokenReserve: anchor.BN;
-  lpSupply: anchor.BN;
+  realSolReserve: anchor.BN;
+  realTokenReserve: anchor.BN;
+  virtualSolReserve: anchor.BN;
+  virtualTokenReserve: anchor.BN;
 }
 
 // AMM Seeds
 const AMM_POOL_SEED = "amm_pool";
-const LP_MINT_SEED = "lp_mint";
+// ❌ REMOVED: LP_MINT_SEED - bonding curve model doesn't use LP tokens
 const POOL_SOL_VAULT_SEED = "pool_sol_vault";
 const POOL_TOKEN_VAULT_SEED = "pool_token_vault";
 
@@ -41,18 +42,7 @@ export function getAmmPoolPda(tokenMint: PublicKey, programId: PublicKey): [Publ
   return [pda, bump];
 }
 
-// Helper: Derive LP Mint PDA
-export function getLpMintPda(tokenMint: PublicKey, programId: PublicKey): [PublicKey, number] {
-  console.log("🪙 [getLpMintPda] Deriving LP mint PDA for token:", tokenMint.toBase58());
-  
-  const [pda, bump] = PublicKey.findProgramAddressSync(
-    [Buffer.from(LP_MINT_SEED), tokenMint.toBuffer()],
-    programId
-  );
-  
-  console.log("🪙 [getLpMintPda] LP Mint PDA:", pda.toBase58(), "bump:", bump);
-  return [pda, bump];
-}
+// ❌ REMOVED: getLpMintPda - bonding curve model doesn't use LP tokens
 
 // Helper: Derive SOL Vault PDA
 export function getSolVaultPda(tokenMint: PublicKey, programId: PublicKey): [PublicKey, number] {
@@ -74,25 +64,21 @@ export function getTokenVaultPda(tokenMint: PublicKey, programId: PublicKey): [P
 
 /**
  * Initialize a new AMM pool
+ * ⚠️ UPDATED: No longer accepts parameters - uses FIXED values from Rust program
+ * Fixed: 0.02 SOL + 800M tokens (pump.fun style)
  */
 export async function initializeAmmPool(
   tokenMintAddress: string,
-  initialSolAmount: number,
-  initialTokenAmount: number | string,
 ) {
   console.log("🏊 [initializeAmmPool] Starting pool initialization...");
   console.log("   Token mint:", tokenMintAddress);
-  console.log("   Initial SOL:", initialSolAmount, "SOL");
-  console.log("   Initial tokens:", initialTokenAmount);
+  console.log("   Using FIXED parameters: 0.02 SOL + 800M tokens");
 
   const { program, adminKeypair } = getProgram();
   const tokenMint = new PublicKey(tokenMintAddress);
 
-  const initialSolLamports = Math.floor(initialSolAmount * LAMPORTS_PER_SOL);
-
   // Derive AMM PDAs
   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
-  const [lpMintPda] = getLpMintPda(tokenMint, program.programId);
   const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
   const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
 
@@ -113,40 +99,27 @@ export async function initializeAmmPool(
   );
   console.log("   Vault Token Account:", vaultTokenAccount.toBase58());
 
-  const initializerLpAccount = getAssociatedTokenAddressSync(
-    lpMintPda,
-    adminKeypair.publicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID
-  );
-
   console.log("🏊 [initializeAmmPool] Account summary:");
   console.log("   Pool PDA:", poolPda.toBase58());
-  console.log("   LP Mint PDA:", lpMintPda.toBase58());
   console.log("   SOL Vault PDA:", solVaultPda.toBase58());
   console.log("   Token Vault PDA:", tokenVaultPda.toBase58());
   console.log("   Minting Vault PDA:", vaultPda.toBase58());
   console.log("   Minting Vault Token Account:", vaultTokenAccount.toBase58());
-  console.log("   Initializer LP account:", initializerLpAccount.toBase58());
 
   try {
     console.log("🏊 [initializeAmmPool] Sending transaction...");
 
+    // ⚠️ IMPORTANT: initializeAmmPool() takes NO parameters
     const tx = await program.methods
-      .initializeAmmPool(
-        new anchor.BN(initialSolLamports),
-        new anchor.BN(initialTokenAmount.toString())
-      )
+      .initializeAmmPool()
       .accounts({
         initializer: adminKeypair.publicKey,
         tokenMint,
         pool: poolPda,
-        lpMint: lpMintPda,
         solVault: solVaultPda,
         tokenVault: tokenVaultPda,
         vault: vaultPda,
         vaultTokenAccount: vaultTokenAccount,
-        initializerLpAccount,
         tokenProgram: TOKEN_2022_PROGRAM_ID,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
@@ -160,12 +133,11 @@ export async function initializeAmmPool(
       success: true,
       transactionId: tx,
       poolAddress: poolPda.toBase58(),
-      lpMintAddress: lpMintPda.toBase58(),
       solVault: solVaultPda.toBase58(),
       tokenVault: tokenVaultPda.toBase58(),
       vaultUsed: vaultPda.toBase58(),
-      initialSol: initialSolAmount,
-      initialTokens: initialTokenAmount.toString(),
+      initialSol: 0.02, // Fixed value
+      initialTokens: "800000000", // Fixed value
     };
   } catch (error: any) {
     console.error("❌ [initializeAmmPool] Error:", error);
@@ -178,81 +150,19 @@ export async function initializeAmmPool(
 }
 
 /**
- * Add liquidity to an existing pool
+ * ❌ DEPRECATED: Add liquidity to an existing pool
+ * This function no longer works - the bonding curve model doesn't use LP tokens
+ * Users buy/sell directly with the pool instead
  */
-export async function addLiquidity(
-  tokenMintAddress: string,
-  solAmount: number,
-  maxTokenAmount: number | string,
-  minLpAmount: number | string = 0,
-) {
-  console.log("💧 [addLiquidity] Adding liquidity...");
-  console.log("   Token mint:", tokenMintAddress);
-  console.log("   SOL amount:", solAmount);
-  console.log("   Max token amount:", maxTokenAmount);
-
-  const { program, adminKeypair } = getProgram();
-  const tokenMint = new PublicKey(tokenMintAddress);
-  const solLamports = Math.floor(solAmount * LAMPORTS_PER_SOL);
-
-  const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
-  const [lpMintPda] = getLpMintPda(tokenMint, program.programId);
-  const [solVaultPda] = getSolVaultPda(tokenMint, program.programId);
-  const [tokenVaultPda] = getTokenVaultPda(tokenMint, program.programId);
-
-  const userTokenAccount = getAssociatedTokenAddressSync(
-    tokenMint,
-    adminKeypair.publicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID
-  );
-
-  const userLpAccount = getAssociatedTokenAddressSync(
-    lpMintPda,
-    adminKeypair.publicKey,
-    false,
-    TOKEN_2022_PROGRAM_ID
-  );
-
-  try {
-    const tx = await program.methods
-      .addLiquidityToPool(
-        new anchor.BN(solLamports),
-        new anchor.BN(maxTokenAmount.toString()),
-        new anchor.BN(minLpAmount.toString())
-      )
-      .accounts({
-        user: adminKeypair.publicKey,
-        pool: poolPda,
-        tokenMint,
-        lpMint: lpMintPda,
-        solVault: solVaultPda,
-        tokenVault: tokenVaultPda,
-        userTokenAccount,
-        userLpAccount,
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .rpc();
-
-    console.log("✅ [addLiquidity] Liquidity added successfully!");
-    console.log("   Transaction:", tx);
-
-    return {
-      success: true,
-      transactionId: tx,
-      solAmount,
-      tokenAmount: maxTokenAmount.toString(),
-    };
-  } catch (error: any) {
-    console.error("❌ [addLiquidity] Error:", error);
-    if (error.logs) {
-      error.logs.forEach((log: string) => console.error(log));
-    }
-    throw error;
-  }
-}
+// export async function addLiquidity(
+//   tokenMintAddress: string,
+//   solAmount: number,
+//   maxTokenAmount: number | string,
+//   minLpAmount: number | string = 0,
+// ) {
+//   // This function is deprecated - bonding curve model doesn't support adding liquidity
+//   throw new Error("addLiquidity is not supported in the bonding curve model");
+// }
 
 // /**
 //  * Remove liquidity from pool
@@ -441,6 +351,7 @@ export async function addLiquidity(
 
 /**
  * Get pool information
+ * ⚠️ UPDATED: Removed lpMint and lpSupply - bonding curve model doesn't use LP tokens
  */
 export async function getPoolInfo(tokenMintAddress: string) {
   console.log("📊 [getPoolInfo] Fetching pool info...");
@@ -451,19 +362,34 @@ export async function getPoolInfo(tokenMintAddress: string) {
   const [poolPda] = getAmmPoolPda(tokenMint, program.programId);
 
   try {
-    const poolAccount = await program.account.ammPool.fetch(poolPda) as unknown as AmmPool;
+    const poolAccount = await program.account.ammPool.fetch(poolPda) as any;
+
+    // ⚠️ IMPORTANT: Rust struct uses real_sol_reserve, real_token_reserve, virtual_sol_reserve, virtual_token_reserve
+    const realSolReserve = poolAccount.realSolReserve || poolAccount.real_sol_reserve;
+    const realTokenReserve = poolAccount.realTokenReserve || poolAccount.real_token_reserve;
+    const virtualSolReserve = poolAccount.virtualSolReserve || poolAccount.virtual_sol_reserve;
+    const virtualTokenReserve = poolAccount.virtualTokenReserve || poolAccount.virtual_token_reserve;
 
     const poolInfo = {
       address: poolPda.toBase58(),
       tokenMint: poolAccount.tokenMint.toBase58(),
-      lpMint: poolAccount.lpMint.toBase58(),
       solVault: poolAccount.solVault.toBase58(),
       tokenVault: poolAccount.tokenVault.toBase58(),
-      solReserve: poolAccount.solReserve.toString(),
-      tokenReserve: poolAccount.tokenReserve.toString(),
-      lpSupply: poolAccount.lpSupply.toString(),
-      solReserveInSol: Number(poolAccount.solReserve.toString()) / LAMPORTS_PER_SOL,
-      tokenReserveFormatted: Number(poolAccount.tokenReserve.toString()) / 1e9,
+      // Real reserves (actual amounts in vaults)
+      realSolReserve: realSolReserve.toString(),
+      realTokenReserve: realTokenReserve.toString(),
+      realSolReserveInSol: Number(realSolReserve.toString()) / LAMPORTS_PER_SOL,
+      realTokenReserveFormatted: Number(realTokenReserve.toString()) / 1e9,
+      // Virtual reserves (for price calculation)
+      virtualSolReserve: virtualSolReserve.toString(),
+      virtualTokenReserve: virtualTokenReserve.toString(),
+      virtualSolReserveInSol: Number(virtualSolReserve.toString()) / LAMPORTS_PER_SOL,
+      virtualTokenReserveFormatted: Number(virtualTokenReserve.toString()) / 1e9,
+      // For backward compatibility, expose as solReserve/tokenReserve (using real reserves)
+      solReserve: realSolReserve.toString(),
+      tokenReserve: realTokenReserve.toString(),
+      solReserveInSol: Number(realSolReserve.toString()) / LAMPORTS_PER_SOL,
+      tokenReserveFormatted: Number(realTokenReserve.toString()) / 1e9,
       isInitialized: poolAccount.isInitialized,
     };
 
