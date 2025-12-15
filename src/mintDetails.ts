@@ -213,7 +213,7 @@ export async function getRecentMintDistribution(memeIdString: string) {
 }
 
 // === Get minted tokens by a specific user ===
-// ⚠️ UPDATED: Added poolDetails for consistency with getAllMintedTokens
+// ⚠️ UPDATED: Added poolDetails with virtual reserves for pump.fun-style market cap calculation
 export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<Array<{
   memeId: string;
   memeIdHex: string;
@@ -223,8 +223,10 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
   isInitialized: boolean;
   poolDetails?: {
     isInitialized: boolean;
-    solReserve: string;
-    tokenReserve: string;
+    solReserve: string; // Real SOL reserve (for liquidity)
+    tokenReserve: string; // Real token reserve
+    virtualSolReserve: string; // Virtual SOL reserve (for market cap)
+    virtualTokenReserve: string; // Virtual token reserve
     currentPrice: string;
   };
 }>> {
@@ -253,8 +255,10 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
         isInitialized: account.isInitialized === 1,
         poolDetails: poolDetails ? {
           isInitialized: poolDetails.isInitialized,
-          solReserve: poolDetails.solReserve.toString(),
-          tokenReserve: poolDetails.tokenReserve.toString(),
+          solReserve: poolDetails.solReserve.toString(), // Real SOL reserve
+          tokenReserve: poolDetails.tokenReserve.toString(), // Real token reserve
+          virtualSolReserve: poolDetails.virtualSolReserve.toString(), // Virtual SOL reserve (for market cap)
+          virtualTokenReserve: poolDetails.virtualTokenReserve.toString(), // Virtual token reserve
           currentPrice: poolDetails.currentPrice,
         } : undefined,
       });
@@ -268,7 +272,7 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
 }
 
 // === Get all minted tokens (from all users) ===
-// ⚠️ UPDATED: Removed lpSupply from pool details
+// ⚠️ UPDATED: Added virtual reserves for pump.fun-style market cap calculation
 export async function getAllMintedTokens(): Promise<Array<{
   memeId: string;
   memeIdHex: string;
@@ -278,8 +282,10 @@ export async function getAllMintedTokens(): Promise<Array<{
   isInitialized: boolean;
   poolDetails?: {
     isInitialized: boolean;
-    solReserve: string;
-    tokenReserve: string;
+    solReserve: string; // Real SOL reserve (for liquidity)
+    tokenReserve: string; // Real token reserve
+    virtualSolReserve: string; // Virtual SOL reserve (for market cap)
+    virtualTokenReserve: string; // Virtual token reserve
     currentPrice: string;
   };
 }>> {
@@ -303,8 +309,10 @@ export async function getAllMintedTokens(): Promise<Array<{
         isInitialized: account.isInitialized,
         poolDetails: poolDetails ? {
           isInitialized: poolDetails.isInitialized,
-          solReserve: poolDetails.solReserve.toString(),
-          tokenReserve: poolDetails.tokenReserve.toString(),
+          solReserve: poolDetails.solReserve.toString(), // Real SOL reserve
+          tokenReserve: poolDetails.tokenReserve.toString(), // Real token reserve
+          virtualSolReserve: poolDetails.virtualSolReserve.toString(), // Virtual SOL reserve (for market cap)
+          virtualTokenReserve: poolDetails.virtualTokenReserve.toString(), // Virtual token reserve
           currentPrice: poolDetails.currentPrice,
         } : undefined,
       };
@@ -321,31 +329,36 @@ export async function getAllMintedTokens(): Promise<Array<{
 
 // ==================== AMM POOL INTERFACES ====================
 
-// ⚠️ UPDATED: Removed lpMint and lpSupply
+// ⚠️ UPDATED: Added virtual reserves for pump.fun-style market cap calculation
 export interface AmmPool {
   tokenMint: PublicKey;
   solVault: PublicKey;
   tokenVault: PublicKey;
-  solReserve: BN;
-  tokenReserve: BN;
+  solReserve: BN; // Real SOL reserve
+  tokenReserve: BN; // Real token reserve
+  virtualSolReserve: BN; // Virtual SOL reserve (for market cap)
+  virtualTokenReserve: BN; // Virtual token reserve (for price calculation)
   bump: number;
   isInitialized: boolean;
   currentPrice: string; // Calculated: SOL per token
 }
 
-// ⚠️ UPDATED: Removed lpMint and lpSupply
+// ⚠️ UPDATED: Added virtual reserves for pump.fun-style market cap calculation
 export interface AmmPoolResponse {
   tokenMint: string;
   solVault: string;
   tokenVault: string;
-  solReserve: string;
-  tokenReserve: string;
+  solReserve: string; // Real SOL reserve
+  tokenReserve: string; // Real token reserve
+  virtualSolReserve: string; // Virtual SOL reserve (for market cap)
+  virtualTokenReserve: string; // Virtual token reserve (for price calculation)
   currentPrice: string;
   bump: number;
   isInitialized: boolean;
 }
 
-// ⚠️ UPDATED: Removed LP-related fields, added price calculation
+// ⚠️ UPDATED: Read real and virtual reserves from Rust program
+// The Rust AmmPool struct has: real_sol_reserve, real_token_reserve, virtual_sol_reserve, virtual_token_reserve
 export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> {
   const { program } = getProgram();
 
@@ -360,19 +373,31 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
       return null;
     }
 
-    const tokenDecimals = 9;
-    const solReserve = Number(poolAccount.solReserve.toString());
-    const tokenReserve = Number(poolAccount.tokenReserve.toString());
+    // ⚠️ IMPORTANT: Rust struct uses real_sol_reserve, real_token_reserve, virtual_sol_reserve, virtual_token_reserve
+    // For display purposes, we use real reserves
+    // For price calculation, we should use virtual reserves (but currently using real for compatibility)
+    const realSolReserve = poolAccount.realSolReserve || poolAccount.real_sol_reserve;
+    const realTokenReserve = poolAccount.realTokenReserve || poolAccount.real_token_reserve;
+    const virtualSolReserve = poolAccount.virtualSolReserve || poolAccount.virtual_sol_reserve;
+    const virtualTokenReserve = poolAccount.virtualTokenReserve || poolAccount.virtual_token_reserve;
 
-    // Calculate current price (SOL per token)
-    const currentPrice = (solReserve / tokenReserve).toExponential(8);
+    // Use virtual reserves for price calculation (as per Rust program logic)
+    const solReserveForPrice = virtualSolReserve ? Number(virtualSolReserve.toString()) : Number(realSolReserve.toString());
+    const tokenReserveForPrice = virtualTokenReserve ? Number(virtualTokenReserve.toString()) : Number(realTokenReserve.toString());
+
+    // Calculate current price (SOL per token) using virtual reserves
+    const currentPrice = (solReserveForPrice / tokenReserveForPrice).toExponential(8);
 
     return {
       tokenMint: poolAccount.tokenMint,
       solVault: poolAccount.solVault,
       tokenVault: poolAccount.tokenVault,
-      solReserve: poolAccount.solReserve,
-      tokenReserve: poolAccount.tokenReserve,
+      // Real reserves (actual amounts in vaults - for liquidity display)
+      solReserve: realSolReserve,
+      tokenReserve: realTokenReserve,
+      // Virtual reserves (for market cap and price calculation)
+      virtualSolReserve: virtualSolReserve || realSolReserve,
+      virtualTokenReserve: virtualTokenReserve || realTokenReserve,
       bump: poolAccount.bump,
       isInitialized: poolAccount.isInitialized,
       currentPrice,
@@ -383,14 +408,16 @@ export async function getAmmPool(tokenMint: PublicKey): Promise<AmmPool | null> 
   }
 }
 
-// ⚠️ UPDATED: Removed LP-related fields
+// ⚠️ UPDATED: Added virtual reserves for pump.fun-style market cap calculation
 export function ammPoolToResponse(pool: AmmPool): AmmPoolResponse {
   return {
     tokenMint: pool.tokenMint.toBase58(),
     solVault: pool.solVault.toBase58(),
     tokenVault: pool.tokenVault.toBase58(),
-    solReserve: pool.solReserve.toString(),
-    tokenReserve: pool.tokenReserve.toString(),
+    solReserve: pool.solReserve.toString(), // Real SOL reserve
+    tokenReserve: pool.tokenReserve.toString(), // Real token reserve
+    virtualSolReserve: pool.virtualSolReserve.toString(), // Virtual SOL reserve (for market cap)
+    virtualTokenReserve: pool.virtualTokenReserve.toString(), // Virtual token reserve
     currentPrice: pool.currentPrice,
     bump: pool.bump,
     isInitialized: pool.isInitialized,
