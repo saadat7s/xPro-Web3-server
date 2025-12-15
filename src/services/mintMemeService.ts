@@ -20,6 +20,42 @@ import {
 } from "../helpers";
 import { getProgram } from "../utils/getProgram";
 
+// === Check Protocol State Status ===
+export async function checkProtocolStateStatus(): Promise<{
+  isInitialized: boolean;
+  protocolState?: string;
+  authority?: string;
+  feeLamports?: string;
+}> {
+  const { program } = getProgram();
+
+  try {
+    const [protocolState] = getProtocolStatePda(program.programId);
+
+    // Try to fetch the protocol state account
+    const protocolStateAccount = await program.account.protocolState.fetch(protocolState) as any;
+
+    return {
+      isInitialized: true,
+      protocolState: protocolState.toString(),
+      authority: protocolStateAccount.authority.toString(),
+      feeLamports: protocolStateAccount.feeLamports.toString(),
+    };
+  } catch (error: any) {
+    // If account doesn't exist or can't be fetched, protocol is not initialized
+    if (error.message?.includes("Account does not exist") || 
+        error.message?.includes("AccountNotInitialized") ||
+        error.code === "AccountNotFound") {
+      return {
+        isInitialized: false,
+      };
+    }
+    
+    // Re-throw unexpected errors
+    throw error;
+  }
+}
+
 // === Initialize Protocol State (unsigned) ===
 // ⚠️ UPDATED: No longer accepts feeLamports parameter - it's hardcoded in contract to 0.01 SOL
 export async function createInitializeProtocolStateTransaction(
