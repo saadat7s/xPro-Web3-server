@@ -11,7 +11,7 @@ export async function getAllMemes(): Promise<MemeResponse> {
     const { data, error } = await supabase
       .from('memes')
       .select('*')
-      .order('createdAt', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching memes:', error);
@@ -21,9 +21,20 @@ export async function getAllMemes(): Promise<MemeResponse> {
       };
     }
 
+    // Map snake_case database columns to camelCase TypeScript interface
+    const mappedData = (data || []).map((row: any) => ({
+      id: row.id,
+      name: row.name,
+      walletPublicKey: row.wallet_public_key,
+      imageUrl: row.image_url,
+      relatedToken: row.related_token,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
     return {
       success: true,
-      data: data as Meme[],
+      data: mappedData as Meme[],
     };
   } catch (error: any) {
     console.error('Unexpected error in getAllMemes:', error);
@@ -62,9 +73,20 @@ export async function getMemeById(id: number): Promise<MemeResponse> {
       };
     }
 
+    // Map snake_case database columns to camelCase TypeScript interface
+    const mappedData = {
+      id: data.id,
+      name: data.name,
+      walletPublicKey: data.wallet_public_key,
+      imageUrl: data.image_url,
+      relatedToken: data.related_token,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+
     return {
       success: true,
-      data: data as Meme,
+      data: mappedData as Meme,
     };
   } catch (error: any) {
     console.error('Unexpected error in getMemeById:', error);
@@ -113,9 +135,9 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
       .insert([
         {
           name: memeInput.name,
-          walletPublicKey: memeInput.walletPublicKey,
-          imageUrl: memeInput.imageUrl,
-          relatedToken: memeInput.relatedToken || null,
+          wallet_public_key: memeInput.walletPublicKey,
+          image_url: memeInput.imageUrl,
+          related_token: memeInput.relatedToken || null,
         },
       ])
       .select()
@@ -129,15 +151,125 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
       };
     }
 
+    // Map snake_case database columns to camelCase TypeScript interface
+    const mappedData = {
+      id: data.id,
+      name: data.name,
+      walletPublicKey: data.wallet_public_key,
+      imageUrl: data.image_url,
+      relatedToken: data.related_token,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+
     return {
       success: true,
-      data: data as Meme,
+      data: mappedData as Meme,
     };
   } catch (error: any) {
     console.error('Unexpected error in storeMeme:', error);
     return {
       success: false,
       error: error?.message || 'An unexpected error occurred while storing meme',
+    };
+  }
+}
+
+/**
+ * Bind a meme to a token by setting the relatedToken field
+ * This is called after a successful on-chain mint transaction.
+ *
+ * @param id - The ID of the meme to bind
+ * @param tokenMint - The token mint address to bind to the meme
+ * @returns Promise<MemeResponse> - The updated meme
+ */
+export async function bindMemeToToken(id: number, tokenMint: string): Promise<MemeResponse> {
+  try {
+    if (!id || Number.isNaN(id)) {
+      return {
+        success: false,
+        error: 'Invalid meme ID. Must be a number',
+      };
+    }
+
+    if (!tokenMint) {
+      return {
+        success: false,
+        error: 'Missing required field: tokenMint is required',
+      };
+    }
+
+    // Basic Solana mint (public key) validation
+    if (tokenMint.length < 32 || tokenMint.length > 44) {
+      return {
+        success: false,
+        error: 'Invalid tokenMint format',
+      };
+    }
+
+    // First, fetch the meme to ensure it exists and is not already bound
+    const { data: existing, error: fetchError } = await supabase
+      .from('memes')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('Error fetching meme for bindMemeToToken:', fetchError);
+      return {
+        success: false,
+        error: fetchError.message || 'Failed to fetch meme before binding token',
+      };
+    }
+
+    if (!existing) {
+      return {
+        success: false,
+        error: 'Meme not found',
+      };
+    }
+
+    if (existing.related_token) {
+      return {
+        success: false,
+        error: 'Meme is already bound to a token',
+      };
+    }
+
+    const { data, error } = await supabase
+      .from('memes')
+      .update({ related_token: tokenMint })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Error binding meme to token:', error);
+      return {
+        success: false,
+        error: error.message || 'Failed to bind meme to token',
+      };
+    }
+
+    const mappedData = {
+      id: data.id,
+      name: data.name,
+      walletPublicKey: data.wallet_public_key,
+      imageUrl: data.image_url,
+      relatedToken: data.related_token,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+
+    return {
+      success: true,
+      data: mappedData as Meme,
+    };
+  } catch (error: any) {
+    console.error('Unexpected error in bindMemeToToken:', error);
+    return {
+      success: false,
+      error: error?.message || 'An unexpected error occurred while binding meme to token',
     };
   }
 }
