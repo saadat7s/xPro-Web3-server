@@ -84,10 +84,15 @@ export async function storeMemeController(req: Request, res: Response) {
     const result = await storeMeme(memeInput);
 
     if (!result.success) {
-      // If validation error, return 400, otherwise 500
+      // If validation / uniqueness error, return 400 or 409, otherwise 500
+      if (result.error === 'Meme name must be unique') {
+        return res.status(409).json(result);
+      }
+
       if (result.error?.includes('Invalid') || result.error?.includes('Missing')) {
         return res.status(400).json(result);
       }
+
       return res.status(500).json(result);
     }
 

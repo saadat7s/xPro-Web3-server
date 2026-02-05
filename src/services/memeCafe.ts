@@ -112,6 +112,30 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
       };
     }
 
+    // Enforce unique meme name
+    {
+      const { data: existingByName, error: nameCheckError } = await supabase
+        .from('memes')
+        .select('id')
+        .eq('name', memeInput.name)
+        .maybeSingle();
+
+      if (nameCheckError && nameCheckError.code !== 'PGRST116') {
+        console.error('Error checking meme name uniqueness:', nameCheckError);
+        return {
+          success: false,
+          error: nameCheckError.message || 'Failed to validate meme name uniqueness',
+        };
+      }
+
+      if (existingByName) {
+        return {
+          success: false,
+          error: 'Meme name must be unique',
+        };
+      }
+    }
+
     // Validate walletPublicKey format (basic Solana public key validation)
     if (memeInput.walletPublicKey.length < 32 || memeInput.walletPublicKey.length > 44) {
       return {
@@ -145,6 +169,15 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
 
     if (error) {
       console.error('Error storing meme:', error);
+
+      // If the database has a unique constraint on name, surface a clear message
+      if ((error as any).code === '23505') {
+        return {
+          success: false,
+          error: 'Meme name must be unique',
+        };
+      }
+
       return {
         success: false,
         error: error.message || 'Failed to store meme',
