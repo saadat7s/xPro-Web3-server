@@ -8,6 +8,7 @@ import { memeIdToString } from "./helpers";
 import { stringToMemeId } from "./helpers";
 import { getMemeTokenStatePda } from "./helpers";
 import { BN } from "@coral-xyz/anchor";
+import { supabase } from "./database/database";
 
 // === Get Token Balance for any token account ===
 export async function getTokenBalance(tokenAccountAddress: PublicKey): Promise<{
@@ -221,6 +222,7 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
   minter: string;
   createdAt: string;
   isInitialized: boolean;
+  memeName?: string;
   poolDetails?: {
     isInitialized: boolean;
     solReserve: string; // Real SOL reserve (for liquidity)
@@ -264,6 +266,9 @@ export async function getMintedTokensByUser(userPublicKey: PublicKey): Promise<A
       });
     }
 
+    // Attach meme names based on token mint (related_token column in memes table)
+    userTokens = await attachMemeNamesToTokens(userTokens);
+
     return userTokens;
   } catch (error) {
     console.error("Error fetching minted tokens by user:", error);
@@ -280,6 +285,7 @@ export async function getAllMintedTokens(): Promise<Array<{
   minter: string;
   createdAt: string;
   isInitialized: boolean;
+  memeName?: string;
   poolDetails?: {
     isInitialized: boolean;
     solReserve: string; // Real SOL reserve (for liquidity)
@@ -320,10 +326,55 @@ export async function getAllMintedTokens(): Promise<Array<{
       allTokens.push(token);
     }
 
+    // Attach meme names based on token mint (related_token column in memes table)
+    allTokens = await attachMemeNamesToTokens(allTokens);
+
     return allTokens;
   } catch (error) {
     console.error("Error fetching all minted tokens:", error);
     return [];
+  }
+}
+
+// Helper: attach memeName to each token entry using Supabase `memes` table
+async function attachMemeNamesToTokens(tokens: Array<{
+  memeId: string;
+  memeIdHex: string;
+  mint: string;
+  minter: string;
+  createdAt: string;
+  isInitialized: boolean;
+  poolDetails?: any;
+}>): Promise<typeof tokens> {
+  if (!tokens.length) return tokens;
+
+  const uniqueMints = Array.from(new Set(tokens.map((t) => t.mint)));
+
+  try {
+    const { data, error } = await supabase
+      .from("memes")
+      .select("name, related_token")
+      .in("related_token", uniqueMints);
+
+    if (error) {
+      console.error("Error fetching memes for tokens:", error);
+      return tokens;
+    }
+
+    const nameByMint = new Map<string, string>();
+    (data || []).forEach((row: any) => {
+      if (row.related_token && row.name) {
+        nameByMint.set(row.related_token, row.name);
+      }
+    });
+
+    return tokens.map((token) => ({
+      ...token,
+      memeName: nameByMint.get(token.mint),
+    }));
+  } catch (e) {
+    console.error("Unexpected error while attaching meme names:", e);
+    return tokens;
   }
 }
 
