@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 
 import mintMemeTxRouter from "./routes/mintMemeRoute";
 import poolCreationTxRouter from "./routes/poolCreationRoute";
+import memeCafeRouter from "./routes/memeCafe";
 import { setupSwaggerFromJson } from "./swagger.config";
 import helmet from "helmet";
 import morgan from "morgan";
@@ -36,6 +37,7 @@ app.get('/health', (req: Request, res: Response) => {
 // API Routes
 app.use('/meme', mintMemeTxRouter);
 app.use('/amm', poolCreationTxRouter);
+app.use('/meme-cafe', memeCafeRouter);
 
 // 404 Handler
 app.use((req: Request, res: Response) => {
