@@ -1,6 +1,7 @@
 
 import { supabase } from '../database/database';
 import { Meme, CreateMemeInput, MemeResponse } from '../types/meme';
+import { getMemeEngagementSummary } from './memeEngagement';
 
 /**
  * Get all memes from the database
@@ -22,19 +23,39 @@ export async function getAllMemes(): Promise<MemeResponse> {
     }
 
     // Map snake_case database columns to camelCase TypeScript interface
-    const mappedData = (data || []).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      walletPublicKey: row.wallet_public_key,
-      imageUrl: row.image_url,
-      relatedToken: row.related_token,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    const mappedData = await Promise.all(
+      (data || []).map(async (row: any) => {
+        const meme: Meme = {
+          id: row.id,
+          name: row.name,
+          walletPublicKey: row.wallet_public_key,
+          imageUrl: row.image_url,
+          relatedToken: row.related_token,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        };
+
+        // Fetch engagement summary for each meme
+        const engagementResult = await getMemeEngagementSummary(row.id);
+        if (engagementResult.success && engagementResult.data) {
+          meme.engagement = engagementResult.data;
+        } else {
+          // Default to zero engagement if fetch fails
+          meme.engagement = {
+            memeId: row.id,
+            commentsCount: 0,
+            totalReactions: 0,
+            reactionsByType: {},
+          };
+        }
+
+        return meme;
+      })
+    );
 
     return {
       success: true,
-      data: mappedData as Meme[],
+      data: mappedData,
     };
   } catch (error: any) {
     console.error('Unexpected error in getAllMemes:', error);
@@ -74,7 +95,7 @@ export async function getMemeById(id: number): Promise<MemeResponse> {
     }
 
     // Map snake_case database columns to camelCase TypeScript interface
-    const mappedData = {
+    const mappedData: Meme = {
       id: data.id,
       name: data.name,
       walletPublicKey: data.wallet_public_key,
@@ -84,9 +105,23 @@ export async function getMemeById(id: number): Promise<MemeResponse> {
       updatedAt: data.updated_at,
     };
 
+    // Fetch engagement summary
+    const engagementResult = await getMemeEngagementSummary(data.id);
+    if (engagementResult.success && engagementResult.data) {
+      mappedData.engagement = engagementResult.data;
+    } else {
+      // Default to zero engagement if fetch fails
+      mappedData.engagement = {
+        memeId: data.id,
+        commentsCount: 0,
+        totalReactions: 0,
+        reactionsByType: {},
+      };
+    }
+
     return {
       success: true,
-      data: mappedData as Meme,
+      data: mappedData,
     };
   } catch (error: any) {
     console.error('Unexpected error in getMemeById:', error);
@@ -185,7 +220,7 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
     }
 
     // Map snake_case database columns to camelCase TypeScript interface
-    const mappedData = {
+    const mappedData: Meme = {
       id: data.id,
       name: data.name,
       walletPublicKey: data.wallet_public_key,
@@ -195,9 +230,17 @@ export async function storeMeme(memeInput: CreateMemeInput): Promise<MemeRespons
       updatedAt: data.updated_at,
     };
 
+    // New memes start with zero engagement
+    mappedData.engagement = {
+      memeId: data.id,
+      commentsCount: 0,
+      totalReactions: 0,
+      reactionsByType: {},
+    };
+
     return {
       success: true,
-      data: mappedData as Meme,
+      data: mappedData,
     };
   } catch (error: any) {
     console.error('Unexpected error in storeMeme:', error);
@@ -284,7 +327,7 @@ export async function bindMemeToToken(id: number, tokenMint: string): Promise<Me
       };
     }
 
-    const mappedData = {
+    const mappedData: Meme = {
       id: data.id,
       name: data.name,
       walletPublicKey: data.wallet_public_key,
@@ -294,9 +337,23 @@ export async function bindMemeToToken(id: number, tokenMint: string): Promise<Me
       updatedAt: data.updated_at,
     };
 
+    // Fetch engagement summary
+    const engagementResult = await getMemeEngagementSummary(data.id);
+    if (engagementResult.success && engagementResult.data) {
+      mappedData.engagement = engagementResult.data;
+    } else {
+      // Default to zero engagement if fetch fails
+      mappedData.engagement = {
+        memeId: data.id,
+        commentsCount: 0,
+        totalReactions: 0,
+        reactionsByType: {},
+      };
+    }
+
     return {
       success: true,
-      data: mappedData as Meme,
+      data: mappedData,
     };
   } catch (error: any) {
     console.error('Unexpected error in bindMemeToToken:', error);
